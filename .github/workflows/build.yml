@@ -15,21 +15,44 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Test
-        run: python -m unittest discover -s tests -t .
-      - name: Probe Windows capture
-        run: python tools/win_probe.py
-        timeout-minutes: 10
-      - name: Build WaLauncher.exe
+      - name: Install
+        run: pip install pywebview pyinstaller
+      - name: Get FFmpeg (for the tests)
         run: |
-          pip install pyinstaller
-          pyinstaller --noconfirm --onefile --windowed --name WaLauncher WaLauncher.pyw
+          python -c "from litecast import engine as E; print(E.find_ffmpeg() or E.download_ffmpeg())"
+          echo "$env:APPDATA\LiteCast" >> $env:GITHUB_PATH
+      - name: Test
+        run: python -m unittest discover -s tests -t . -v
+      - name: Probe (info only)
+        run: python tools/win_probe.py
+        continue-on-error: true
+      - name: Bake in login app IDs
+        env:
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          KICK_CLIENT_ID: ${{ secrets.KICK_CLIENT_ID }}
+          KICK_CLIENT_SECRET: ${{ secrets.KICK_CLIENT_SECRET }}
+        run: python tools/write_credentials.py
+      - name: Build LiteCast.exe
+        run: pyinstaller --noconfirm --onefile --windowed --name LiteCast --icon assets/litecast.ico --add-data "litecast/ui;litecast/ui" LiteCast.pyw
+      - name: Self-test the built exe
+        timeout-minutes: 6
+        run: |
+          $out = "$env:RUNNER_TEMP\selftest.json"
+          Start-Process -FilePath dist\LiteCast.exe -ArgumentList "--selftest", "`"$out`"" -Wait
+          Get-Content $out
+          $r = Get-Content $out -Raw | ConvertFrom-Json
+          if (-not $r.ok) { Write-Error "selftest failed"; exit 1 }
+      - name: Upload log on failure
+        if: failure()
+        run: Get-ChildItem -Recurse "$env:APPDATA\LiteCast\logs" | Get-Content -Tail 60
       - uses: actions/upload-artifact@v4
         with:
-          name: WaLauncher-windows
-          path: dist/WaLauncher.exe
+          name: LiteCast-windows
+          path: dist/LiteCast.exe
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/WaLauncher.exe
+          files: dist/LiteCast.exe

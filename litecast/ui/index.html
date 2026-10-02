@@ -1,0 +1,839 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiteCast</title>
+<style>
+:root {
+  --bg: #0b0b10;
+  --panel: #13131b;
+  --panel-2: #1a1a25;
+  --field: #20202c;
+  --line: #262634;
+  --line-2: #33334a;
+  --text: #ececf4;
+  --muted: #8f8fa8;
+  --faint: #5d5d74;
+  --accent: #8b5cf6;
+  --accent-2: #ec4899;
+  --grad: linear-gradient(135deg, #8b5cf6 0%, #d946ef 55%, #ec4899 100%);
+  --live: #ff3b5c;
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --twitch: #9146ff;
+  --youtube: #ff0033;
+  --kick: #53fc18;
+  --radius: 14px;
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Inter", Roboto, sans-serif;
+  --mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--text); font: 14px/1.45 var(--font);
+  -webkit-font-smoothing: antialiased; overflow: hidden; user-select: none;
+}
+input, select, button, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: #b9a3ff; text-decoration: none; cursor: pointer; }
+a:hover { text-decoration: underline; }
+.hidden { display: none !important; }
+svg { flex: none; }
+
+/* ---------- layout ---------- */
+.app { display: grid; grid-template-rows: 56px 1fr auto; height: 100vh; }
+.topbar {
+  display: flex; align-items: center; gap: 12px; padding: 0 20px;
+  border-bottom: 1px solid var(--line); background: rgba(19, 19, 27, .7);
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; letter-spacing: .2px; }
+.brand small { color: var(--faint); font-weight: 500; font-size: 12px; }
+.spacer { flex: 1; }
+.pill {
+  display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px;
+  border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line);
+  font-size: 12.5px; font-weight: 600; color: var(--muted); white-space: nowrap;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.pill.ok .dot { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+.pill.busy .dot { background: var(--warn); animation: pulse 1s infinite; }
+.pill.live { color: #fff; background: rgba(255, 59, 92, .14); border-color: rgba(255, 59, 92, .45); }
+.pill.live .dot { background: var(--live); box-shadow: 0 0 12px var(--live); animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+
+.main {
+  display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr); gap: 16px;
+  padding: 16px 20px; overflow-y: auto; min-height: 0;
+}
+.col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+.card-h { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.card-h h2 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: .9px; color: var(--muted); font-weight: 700; }
+.card-h .spacer + * { margin-left: auto; }
+
+/* ---------- controls ---------- */
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; padding: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; }
+.seg button { border: 0; background: transparent; padding: 8px 10px; border-radius: 9px; color: var(--muted); font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 7px; }
+.seg button:hover { color: var(--text); }
+.seg button.on { background: var(--panel-2); color: var(--text); box-shadow: 0 0 0 1px var(--line-2), 0 4px 14px rgba(0, 0, 0, .3); }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 0 14px;
+  border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel-2); font-weight: 600; white-space: nowrap;
+}
+.btn:hover { background: #232331; }
+.btn.small { height: 30px; padding: 0 10px; font-size: 13px; border-radius: 8px; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover { color: var(--text); background: var(--panel-2); }
+.btn:disabled { opacity: .45; cursor: default; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field > span { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+.input, select.input {
+  height: 38px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--field);
+  outline: none; width: 100%; min-width: 0; user-select: text;
+}
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139, 92, 246, .25); }
+select.input { appearance: none; padding-right: 32px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238f8fa8' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; }
+select.input option { background: var(--panel-2); }
+.input-wrap { position: relative; display: flex; }
+.input-wrap .input { padding-right: 70px; }
+.input-wrap .btn { position: absolute; right: 4px; top: 4px; height: 30px; }
+.row { display: flex; gap: 10px; align-items: flex-end; }
+.row > * { flex: 1; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.hint { font-size: 12.5px; color: var(--muted); }
+.switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; color: var(--muted); font-weight: 600; font-size: 13px; }
+.switch input { display: none; }
+.switch i { width: 34px; height: 20px; border-radius: 99px; background: var(--line-2); position: relative; transition: .2s; }
+.switch i::after { content: ""; position: absolute; left: 3px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: .2s; }
+.switch input:checked + i { background: var(--accent); }
+.switch input:checked + i::after { left: 17px; }
+
+/* ---------- source ---------- */
+.preview {
+  position: relative; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; cursor: pointer;
+  background: radial-gradient(120% 120% at 0% 0%, #1d1830 0%, #101018 60%); border: 1px solid var(--line);
+  display: grid; place-items: center;
+}
+.preview img.shot { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.preview .empty { display: flex; flex-direction: column; align-items: center; gap: 10px; color: var(--muted); font-weight: 600; }
+.preview .chip {
+  position: absolute; left: 12px; bottom: 12px; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 140px);
+  padding: 6px 10px 6px 6px; border-radius: 10px; background: rgba(11, 11, 16, .78); backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, .08); font-weight: 600; font-size: 13px;
+}
+.preview .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview .change { position: absolute; right: 12px; bottom: 12px; background: rgba(11, 11, 16, .78); backdrop-filter: blur(8px); }
+.preview:hover .change { background: var(--accent); border-color: var(--accent); }
+.appicon { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; font-size: 12px; font-weight: 800;
+  background: var(--grad); color: #fff; overflow: hidden; flex: none; }
+.appicon img { width: 100%; height: 100%; object-fit: contain; }
+
+/* ---------- destination ---------- */
+.plats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.plat {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 6px 10px;
+  border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); font-weight: 600; font-size: 12.5px;
+}
+.plat:hover { border-color: var(--line-2); color: var(--text); }
+.plat.on { color: var(--text); border-color: var(--pc, var(--accent)); box-shadow: 0 0 0 1px var(--pc, var(--accent)) inset, 0 8px 24px -10px var(--pc, var(--accent)); }
+.plat .conn { position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.plogo { width: 26px; height: 26px; }
+.account { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); }
+.avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: var(--field); flex: none; }
+.account b { display: block; font-size: 15px; }
+.badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ok); font-weight: 600; }
+.loginbtn { height: 44px; border: 0; border-radius: 12px; color: #fff; font-weight: 700; font-size: 15px; width: 100%;
+  display: flex; align-items: center; justify-content: center; gap: 10px; background: var(--pc, var(--accent)); }
+.loginbtn:hover { filter: brightness(1.1); }
+.loginbtn.kick { color: #0b0b10; }
+.or { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 12px; }
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+/* ---------- quality ---------- */
+.presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.preset { text-align: left; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); }
+.preset b { display: block; font-size: 14px; }
+.preset small { color: var(--muted); font-size: 12px; }
+.preset:hover { border-color: var(--line-2); }
+.preset.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; background: linear-gradient(180deg, rgba(139, 92, 246, .16), rgba(139, 92, 246, .04)); }
+.engine { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); font-size: 13px; }
+.engine .gpu { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: rgba(52, 211, 153, .12); color: var(--ok); }
+details.adv { margin-top: 12px; }
+details.adv summary { cursor: pointer; color: var(--muted); font-weight: 600; font-size: 13px; list-style: none; display: flex; align-items: center; gap: 6px; }
+details.adv summary::-webkit-details-marker { display: none; }
+details.adv summary svg { transition: .2s; }
+details.adv[open] summary svg { transform: rotate(90deg); }
+details.adv .stack { margin-top: 12px; }
+
+/* ---------- bottom bar ---------- */
+.bar { display: flex; align-items: center; gap: 16px; padding: 14px 20px; border-top: 1px solid var(--line); background: var(--panel); }
+.go {
+  height: 52px; min-width: 230px; padding: 0 28px; border: 0; border-radius: 14px; color: #fff; font-weight: 800; font-size: 16px; letter-spacing: .3px;
+  background: var(--grad); box-shadow: 0 10px 30px -10px rgba(217, 70, 239, .7); display: flex; align-items: center; justify-content: center; gap: 10px;
+  transition: transform .1s, filter .2s;
+}
+.go:hover { filter: brightness(1.08); }
+.go:active { transform: scale(.98); }
+.go:disabled { filter: grayscale(.7) brightness(.7); cursor: default; box-shadow: none; }
+.go.stop { background: var(--live); box-shadow: 0 10px 30px -10px rgba(255, 59, 92, .8); }
+.go .rec { width: 12px; height: 12px; border-radius: 50%; background: #fff; }
+.go.stop .rec { border-radius: 3px; }
+.stats { display: flex; gap: 22px; align-items: center; }
+.stat { display: flex; flex-direction: column; }
+.stat b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.stat small { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .6px; font-weight: 600; }
+.stat.bad b { color: var(--warn); }
+.msg { flex: 1; min-width: 0; font-size: 13px; }
+.msg .note { color: var(--muted); }
+.msg .note.ok { color: var(--ok); }
+.msg .warn { color: var(--warn); }
+.msg .err { color: #ff7a8f; }
+.msg .detail { color: var(--faint); font-family: var(--mono); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- overlays & modals ---------- */
+.overlay { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: var(--bg); overflow: hidden; }
+.blob { position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%; filter: blur(70px); opacity: .55; }
+.blob.a { background: #7c3aed; animation: drift1 6s ease-in-out infinite alternate; }
+.blob.b { background: #db2777; animation: drift2 7s ease-in-out infinite alternate; }
+.blob.c { background: #2563eb; width: 40vmax; height: 40vmax; animation: drift3 5s ease-in-out infinite alternate; }
+@keyframes drift1 { from { transform: translate(-40vw, -30vh) } to { transform: translate(20vw, 25vh) } }
+@keyframes drift2 { from { transform: translate(35vw, 30vh) } to { transform: translate(-25vw, -20vh) } }
+@keyframes drift3 { from { transform: translate(0, 40vh) rotate(0) } to { transform: translate(10vw, -40vh) rotate(180deg) } }
+.boot { position: relative; text-align: center; width: min(460px, 86vw); }
+.boot h1 { margin: 18px 0 6px; font-size: 26px; }
+.boot p { margin: 0; color: #c9c9da; }
+.boot .sub { margin-top: 6px; font-size: 13px; color: #a6a6bd; min-height: 20px; }
+.progress { height: 6px; border-radius: 99px; background: rgba(255, 255, 255, .12); margin-top: 22px; overflow: hidden; }
+.progress i { display: block; height: 100%; width: 30%; border-radius: 99px; background: #fff; transition: width .3s; }
+.progress.indet i { animation: indet 1.2s ease-in-out infinite; }
+@keyframes indet { from { transform: translateX(-100%) } to { transform: translateX(340%) } }
+.spin { animation: spin 1.4s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg) } }
+
+.modal-bg { position: fixed; inset: 0; z-index: 40; background: rgba(5, 5, 9, .72); backdrop-filter: blur(6px); display: grid; place-items: center; animation: fade .15s; }
+@keyframes fade { from { opacity: 0 } }
+.modal { width: min(880px, 92vw); max-height: 86vh; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-2); border-radius: 18px; box-shadow: 0 30px 80px rgba(0, 0, 0, .6); animation: pop .18s; }
+.modal.narrow { width: min(440px, 92vw); }
+@keyframes pop { from { transform: scale(.97); opacity: 0 } }
+.modal-h { display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.modal-h h3 { margin: 0; font-size: 16px; }
+.modal-b { padding: 18px; overflow-y: auto; }
+.picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.pick { text-align: left; padding: 0; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: var(--panel-2); }
+.pick:hover { border-color: var(--accent); transform: translateY(-1px); }
+.pick.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.pick .t { aspect-ratio: 16 / 9; background: #0e0e15; display: grid; place-items: center; overflow: hidden; }
+.pick .t img { width: 100%; height: 100%; object-fit: contain; }
+.pick .t .big { width: 44px; height: 44px; border-radius: 12px; font-size: 18px; }
+.pick .l { display: flex; align-items: center; gap: 8px; padding: 9px 10px; }
+.pick .l div { min-width: 0; }
+.pick .l b, .pick .l small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick .l b { font-size: 13px; }
+.pick .l small { color: var(--muted); font-size: 11.5px; }
+.code { font-family: var(--mono); font-size: 34px; font-weight: 800; letter-spacing: 6px; text-align: center; padding: 16px; border-radius: 12px; background: var(--bg); border: 1px dashed var(--line-2); margin: 14px 0; user-select: text; }
+.toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 60; padding: 10px 16px; border-radius: 12px; background: #24243a; border: 1px solid var(--line-2); box-shadow: 0 10px 30px rgba(0, 0, 0, .5); font-weight: 600; animation: pop .2s; max-width: 80vw; }
+.toast.err { border-color: rgba(255, 59, 92, .6); }
+
+@media (max-width: 900px) { .main { grid-template-columns: 1fr; } }
+::-webkit-scrollbar { width: 10px; } ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 10px; border: 3px solid var(--bg); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8b5cf6"/><stop offset=".55" stop-color="#d946ef"/><stop offset="1" stop-color="#ec4899"/></linearGradient>
+    <symbol id="logo" viewBox="0 0 32 32"><rect width="32" height="32" rx="9" fill="url(#lg)"/><circle cx="16" cy="16" r="3.4" fill="#fff"/><path d="M10.3 10.3a8 8 0 0 0 0 11.4M21.7 10.3a8 8 0 0 1 0 11.4" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M6.8 6.8a13 13 0 0 0 0 18.4M25.2 6.8a13 13 0 0 1 0 18.4" stroke="#fff" stroke-opacity=".55" stroke-width="2.4" fill="none" stroke-linecap="round"/></symbol>
+    <symbol id="i-twitch" viewBox="0 0 24 24"><path fill="currentColor" d="M4.3 2 2.5 6.6v13.1h4.6V22h2.6l2.4-2.3h3.7L20.7 15V2H4.3Zm14.6 12.1-2.9 2.8h-4.6l-2.4 2.4v-2.4H5.2V3.8h13.7v10.3ZM15.7 7.1v5h-1.8v-5h1.8Zm-4.9 0v5H9v-5h1.8Z"/></symbol>
+    <symbol id="i-youtube" viewBox="0 0 24 24"><rect x="1.5" y="4.5" width="21" height="15" rx="4.5" fill="currentColor"/><path d="M10 8.8v6.4l5.6-3.2z" fill="#fff"/></symbol>
+    <symbol id="i-kick" viewBox="0 0 24 24"><path fill="currentColor" d="M3 2.5h6.2v5.2h2V5.6h2.1V2.5H20v6.4h-2.1V11h-2.1v2h2.1v2.1H20v6.4h-6.7v-3.1h-2.1v-2.1h-2v5.2H3z"/></symbol>
+    <symbol id="i-custom" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/></g></symbol>
+    <symbol id="i-screen" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></g></symbol>
+    <symbol id="i-app" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18"/></g><circle cx="6.5" cy="6.5" r=".9" fill="currentColor"/><circle cx="9.5" cy="6.5" r=".9" fill="currentColor"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4"/></g></symbol>
+    <symbol id="i-speaker" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></g></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></symbol>
+    <symbol id="i-chip" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></g></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </defs>
+</svg>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand"><svg width="30" height="30"><use href="#logo"/></svg> LiteCast <small id="ver"></small></div>
+    <div class="spacer"></div>
+    <div class="pill" id="pill"><span class="dot"></span><span id="pillText">Starting…</span></div>
+  </header>
+
+  <main class="main">
+    <div class="col">
+      <section class="card">
+        <div class="card-h"><h2>What you're capturing</h2><div class="spacer"></div>
+          <label class="switch"><input type="checkbox" id="mouse"><i></i>Show cursor</label></div>
+        <div class="preview" id="preview" title="Change what you capture">
+          <img class="shot hidden" id="shot" alt="">
+          <div class="empty" id="shotEmpty"><svg width="40" height="40"><use href="#i-screen"/></svg><span id="shotEmptyText">Main screen</span></div>
+          <div class="chip"><span class="appicon" id="srcIcon"></span><span id="srcName">Screen</span></div>
+          <button class="btn small change" id="changeSrc">Change</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-h"><h2>Audio</h2></div>
+        <div class="grid2">
+          <label class="field"><span><svg width="13" height="13" style="vertical-align:-2px"><use href="#i-mic"/></svg> Microphone</span><select class="input" id="mic"></select></label>
+          <label class="field"><span><svg width="13" height="13" style="vertical-align:-2px"><use href="#i-speaker"/></svg> Game / PC sound</span><select class="input" id="desk"></select></label>
+        </div>
+        <details class="adv" id="audioHelp"><summary><svg width="12" height="12"><use href="#i-chev"/></svg>Don't see your PC sound?</summary>
+          <p class="hint" style="margin:10px 0 0">Windows: Sound settings → More sound settings → <b>Recording</b> tab → right-click → <i>Show disabled devices</i> → enable <b>Stereo Mix</b>, then restart LiteCast. No Stereo Mix? Install <a data-url="https://github.com/rdp/screen-capture-recorder-to-video-windows-free/releases">virtual-audio-capturer</a> and pick it here.</p>
+        </details>
+      </section>
+
+      <section class="card" id="recCard">
+        <div class="card-h"><h2>Recordings</h2></div>
+        <div class="row">
+          <label class="field" style="flex:2.2"><span>Save to</span><input class="input" id="outDir" readonly></label>
+          <button class="btn" id="browse" style="flex:none"><svg width="16" height="16"><use href="#i-folder"/></svg>Change</button>
+          <button class="btn ghost" id="openDir" style="flex:none">Open</button>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <label class="field"><span>Format</span><select class="input" id="container">
+            <option value="mkv">MKV - safe if your PC crashes (recommended)</option><option value="mp4">MP4</option></select></label>
+        </div>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="card">
+        <div class="card-h"><h2>Where it goes</h2></div>
+        <div class="seg" id="mode">
+          <button data-v="record"><span class="rec" style="width:9px;height:9px;border-radius:50%;background:#ff3b5c"></span>Record</button>
+          <button data-v="stream"><svg width="16" height="16"><use href="#logo"/></svg>Stream</button>
+          <button data-v="both">Stream + Record</button>
+        </div>
+        <div id="streamBox" class="stack" style="margin-top:14px">
+          <div class="plats" id="plats"></div>
+          <div id="acctBox" class="stack"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-h"><h2>Quality</h2></div>
+        <div class="presets" id="presets"></div>
+        <div class="engine"><div class="gpu"><svg width="16" height="16"><use href="#i-chip"/></svg></div>
+          <div style="flex:1;min-width:0"><b id="planLabel">Checking your PC…</b><div class="hint" id="planHint">LiteCast picks the fastest capture method for your PC.</div></div>
+          <button class="btn small ghost" id="retune" title="Run the speed test again"><svg width="14" height="14"><use href="#i-refresh"/></svg>Re-test</button>
+        </div>
+        <details class="adv"><summary><svg width="12" height="12"><use href="#i-chev"/></svg>Advanced</summary>
+          <div class="stack">
+            <div class="grid2">
+              <label class="field"><span>Resolution</span><select class="input" id="height">
+                <option value="480">480p</option><option value="720">720p</option><option value="900">900p</option><option value="1080">1080p</option><option value="0">Native</option></select></label>
+              <label class="field"><span>Frame rate</span><select class="input" id="fps">
+                <option value="24">24 fps</option><option value="30">30 fps</option><option value="48">48 fps</option><option value="60">60 fps</option></select></label>
+              <label class="field"><span>Bitrate (kbps)</span><input class="input" id="bitrate" type="number" min="300" max="50000" step="100"></label>
+              <label class="field"><span>Encoder</span><select class="input" id="encoder"></select></label>
+            </div>
+            <div class="row" style="gap:8px;flex-wrap:wrap">
+              <button class="btn small" id="openLogs" style="flex:none">Open logs</button>
+              <button class="btn small" id="copyDiag" style="flex:none">Copy diagnostics</button>
+            </div>
+          </div>
+        </details>
+      </section>
+    </div>
+  </main>
+
+  <footer class="bar">
+    <button class="go" id="go"><span class="rec"></span><span id="goText">Start recording</span></button>
+    <div class="stats hidden" id="stats">
+      <div class="stat"><b id="sTime">00:00:00</b><small>Time</small></div>
+      <div class="stat" id="sFpsBox"><b id="sFps">0</b><small>FPS</small></div>
+      <div class="stat"><b id="sKbps">-</b><small>kbps</small></div>
+      <div class="stat" id="sDropBox"><b id="sDrop">0</b><small>Dropped</small></div>
+    </div>
+    <div class="msg" id="msg"></div>
+  </footer>
+</div>
+
+<!-- boot / speed test overlay -->
+<div class="overlay" id="boot">
+  <div class="blob a"></div><div class="blob b"></div><div class="blob c"></div>
+  <div class="boot">
+    <svg width="64" height="64"><use href="#logo"/></svg>
+    <h1 id="bootTitle">LiteCast</h1>
+    <p id="bootText">Starting up…</p>
+    <div class="sub" id="bootSub"></div>
+    <div class="progress indet" id="bootBar"><i></i></div>
+    <div id="bootErr" class="hidden" style="margin-top:20px">
+      <button class="btn" id="bootRetry">Try again</button>
+    </div>
+  </div>
+</div>
+
+<!-- source picker -->
+<div class="modal-bg hidden" id="pickerBg">
+  <div class="modal">
+    <div class="modal-h">
+      <h3>Pick what to capture</h3>
+      <div class="seg" id="pickTabs" style="width:260px;margin-left:12px">
+        <button data-v="window"><svg width="15" height="15"><use href="#i-app"/></svg>Apps</button>
+        <button data-v="screen"><svg width="15" height="15"><use href="#i-screen"/></svg>Screens</button>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn small ghost" id="pickRefresh"><svg width="14" height="14"><use href="#i-refresh"/></svg>Refresh</button>
+      <button class="btn small ghost" id="pickClose"><svg width="14" height="14"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-b"><div class="picker" id="pickGrid"></div><p class="hint hidden" id="pickEmpty">No open apps found. Open your game or app, then hit Refresh.</p></div>
+  </div>
+</div>
+
+<!-- login -->
+<div class="modal-bg hidden" id="loginBg">
+  <div class="modal narrow">
+    <div class="modal-h"><h3 id="loginTitle">Log in</h3><div class="spacer"></div>
+      <button class="btn small ghost" id="loginClose"><svg width="14" height="14"><use href="#i-x"/></svg></button></div>
+    <div class="modal-b" id="loginBody"></div>
+  </div>
+</div>
+
+<div class="toast hidden" id="toast"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const api = () => window.pywebview.api;
+let INFO = null, S = {}, ST = {}, SOURCES = null, pickTab = "window", lastPhase = "", lastLogin = null;
+const iconCache = {}, PLAT_URLS = {
+  twitch: "https://dashboard.twitch.tv/settings/stream",
+  youtube: "https://studio.youtube.com/channel/UC/livestreaming",
+  kick: "https://kick.com/dashboard/settings/stream",
+};
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const PCOLOR = { twitch: "var(--twitch)", youtube: "var(--youtube)", kick: "var(--kick)", custom: "var(--accent)" };
+
+function toast(text, err) {
+  const t = $("toast");
+  t.textContent = text; t.className = "toast" + (err ? " err" : "");
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.add("hidden"), 3800);
+}
+
+async function save(patch) {
+  Object.assign(S, patch);
+  renderSettings();
+  try { S = await api().save(patch); } catch (e) { /* keep local */ }
+  renderSettings();
+}
+
+// ---------------------------------------------------------------- settings UI
+function renderSettings() {
+  document.querySelectorAll("#mode button").forEach((b) => b.classList.toggle("on", b.dataset.v === S.mode));
+  const streaming = S.mode !== "record";
+  $("streamBox").classList.toggle("hidden", !streaming);
+  $("recCard").classList.toggle("hidden", S.mode === "stream");
+  $("goText").textContent = { record: "Start recording", stream: "Go live", both: "Go live + record" }[S.mode];
+  $("mouse").checked = !!S.draw_mouse;
+  $("outDir").value = S.out_dir || "";
+  $("container").value = S.container;
+  $("height").value = String(S.height);
+  $("fps").value = String(S.fps);
+  if (document.activeElement !== $("bitrate")) $("bitrate").value = S.bitrate;
+  renderPresets(); renderPlatforms(); renderSourceChip();
+}
+
+function renderPresets() {
+  $("presets").innerHTML = INFO.presets.map((p) => {
+    const on = S.preset === p.id && S.height === p.height && S.fps === p.fps && S.bitrate === p.kbps;
+    return `<button class="preset ${on ? "on" : ""}" data-p="${p.id}"><b>${p.id}</b><small>${p.height}p · ${p.fps} fps</small></button>`;
+  }).join("");
+}
+
+function renderPlatforms() {
+  const acc = (ST.accounts || {});
+  const html = INFO.platforms.map((p) => `
+    <button class="plat ${S.platform === p.id ? "on" : ""}" data-id="${p.id}" style="--pc:${PCOLOR[p.id]}">
+      ${acc[p.id] && acc[p.id].user ? '<span class="conn"></span>' : ""}
+      <svg class="plogo" style="color:${p.id === "custom" ? "#c9c9da" : PCOLOR[p.id]}"><use href="#i-${p.id}"/></svg>${p.name}</button>`).join("");
+  if ($("plats").dataset.html !== html) { $("plats").innerHTML = html; $("plats").dataset.html = html; }
+  renderAccount();
+}
+
+let keyShown = false, manualKey = {};
+function renderAccount() {
+  const pid = S.platform, plat = INFO.platforms.find((p) => p.id === pid);
+  const a = (ST.accounts || {})[pid] || {};
+  const box = $("acctBox");
+  const focused = document.activeElement && box.contains(document.activeElement) ? document.activeElement.id : null;
+  let html = "";
+  if (pid !== "custom" && a.user) {
+    html += `<div class="account">
+        <img class="avatar" src="${esc(a.user.avatar)}" onerror="this.style.visibility='hidden'">
+        <div style="flex:1;min-width:0"><b>${esc(a.user.name)}</b><span class="badge"><svg width="13" height="13"><use href="#i-check"/></svg>Connected - your key is fetched automatically</span></div>
+        <button class="btn small ghost" data-act="logout">Log out</button></div>
+      <label class="field"><span>Stream title</span><input class="input" id="title" maxlength="140" placeholder="What are you streaming today?" value="${esc(S.stream_title)}"></label>`;
+    if (pid === "youtube") {
+      html += `<label class="field"><span>Who can watch</span><select class="input" id="privacy">
+        ${["public", "unlisted", "private"].map((v) => `<option value="${v}" ${S.yt_privacy === v ? "selected" : ""}>${v[0].toUpperCase() + v.slice(1)}</option>`).join("")}</select></label>`;
+    }
+  } else {
+    const showLogin = pid !== "custom" && a.configured;
+    if (showLogin && !manualKey[pid]) {
+      html += `<button class="loginbtn ${pid}" style="--pc:${PCOLOR[pid]}" data-act="login">
+          <svg width="22" height="22"><use href="#i-${pid}"/></svg>Log in with ${plat.name}</button>
+        <div class="or">or</div><a class="hint" style="text-align:center" data-act="manual">Paste a stream key instead</a>`;
+    } else {
+      if (pid === "kick" || pid === "custom") {
+        html += `<label class="field"><span>Server URL</span><input class="input" id="server" placeholder="rtmps://..." value="${esc(S.custom_server)}"></label>`;
+      }
+      html += `<label class="field"><span>Stream key</span><div class="input-wrap">
+          <input class="input" id="skey" type="${keyShown ? "text" : "password"}" placeholder="Paste it here" value="${esc((S.stream_keys || {})[pid] || "")}">
+          <button class="btn small ghost" data-act="showkey">${keyShown ? "Hide" : "Show"}</button></div></label>`;
+      const links = [];
+      if (PLAT_URLS[pid]) links.push(`<a data-url="${PLAT_URLS[pid]}">Where do I find my key?</a>`);
+      if (showLogin) links.push(`<a data-act="unmanual">Log in instead</a>`);
+      else if (pid !== "custom") links.push(`<span>Log in with ${plat.name} isn't set up in this build yet.</span>`);
+      html += `<div class="hint" style="display:flex;gap:14px;flex-wrap:wrap">${links.join("")}</div>`;
+    }
+  }
+  if (box.dataset.html !== html) {
+    box.innerHTML = html; box.dataset.html = html;
+    if (focused && $(focused)) $(focused).focus();
+  }
+}
+
+// ---------------------------------------------------------------- source
+async function loadSources() {
+  try { SOURCES = await api().sources(); } catch (e) { SOURCES = { screens: [], windows: [] }; }
+  return SOURCES;
+}
+
+function letterIcon(name) { return esc((name || "?").replace(/\.exe$/i, "").slice(0, 1).toUpperCase()); }
+
+async function iconFor(path) {
+  if (!path) return null;
+  if (!(path in iconCache)) iconCache[path] = api().icon(path).catch(() => null);
+  return iconCache[path];
+}
+
+function renderSourceChip() {
+  const win = S.source === "window";
+  const name = win ? (S.window_title || S.window_exe || "Pick an app") : screenName(S.monitor);
+  $("srcName").textContent = name;
+  $("shotEmptyText").textContent = win ? (S.window_exe || "No app picked") : name;
+  const ic = $("srcIcon");
+  if (!win) { ic.innerHTML = '<svg width="14" height="14"><use href="#i-screen"/></svg>'; return; }
+  ic.textContent = letterIcon(S.window_exe);
+  const w = SOURCES && SOURCES.windows.find((x) => x.hwnd === S.window_hwnd);
+  if (w) iconFor(w.path).then((src) => { if (src && S.window_hwnd === w.hwnd) ic.innerHTML = `<img src="${src}">`; });
+}
+
+function screenName(i) {
+  const s = SOURCES && SOURCES.screens[i];
+  return s ? (s.w ? `${s.name} · ${s.w}×${s.h}` : s.name) : "Main screen";
+}
+
+async function refreshPreview() {
+  if (!SOURCES) await loadSources();
+  let src = null;
+  try {
+    if (S.source === "window") {
+      const w = SOURCES.windows.find((x) => x.hwnd === S.window_hwnd) ||
+        SOURCES.windows.find((x) => x.exe && x.exe === S.window_exe);
+      if (w && w.hwnd !== S.window_hwnd) await save({ window_hwnd: w.hwnd, window_title: w.title });
+      if (w) src = await api().thumb("window", w.hwnd);
+    } else {
+      src = await api().thumb("screen", S.monitor);
+    }
+  } catch (e) { src = null; }
+  $("shot").classList.toggle("hidden", !src);
+  $("shotEmpty").classList.toggle("hidden", !!src);
+  if (src) $("shot").src = src;
+  renderSourceChip();
+}
+
+async function openPicker() {
+  if (ST.phase === "live" || ST.phase === "stopping") return toast("Stop first to change what you capture.");
+  pickTab = INFO.can_pick_windows ? "window" : "screen";
+  $("pickerBg").classList.remove("hidden");
+  $("pickTabs").classList.toggle("hidden", !INFO.can_pick_windows);
+  $("pickGrid").innerHTML = "";
+  await loadSources();
+  renderPicker();
+}
+
+function renderPicker() {
+  document.querySelectorAll("#pickTabs button").forEach((b) => b.classList.toggle("on", b.dataset.v === pickTab));
+  const items = pickTab === "window" ? SOURCES.windows : SOURCES.screens;
+  $("pickEmpty").classList.toggle("hidden", items.length > 0);
+  $("pickGrid").innerHTML = items.map((it, i) => {
+    const on = pickTab === "window" ? S.source === "window" && it.hwnd === S.window_hwnd : S.source === "screen" && it.id === S.monitor;
+    const title = pickTab === "window" ? it.title : it.name;
+    const sub = pickTab === "window" ? it.exe + (it.minimized ? " · minimized" : "") : (it.w ? `${it.w}×${it.h}` : "");
+    const icon = pickTab === "window" ? `<span class="appicon" data-icon="${i}">${letterIcon(it.exe)}</span>` : `<span class="appicon"><svg width="14" height="14"><use href="#i-screen"/></svg></span>`;
+    return `<button class="pick ${on ? "on" : ""}" data-i="${i}">
+      <div class="t" data-thumb="${i}"><span class="appicon big">${pickTab === "window" ? letterIcon(it.exe) : '<svg width="22" height="22"><use href="#i-screen"/></svg>'}</span></div>
+      <div class="l">${icon}<div><b>${esc(title)}</b><small>${esc(sub)}</small></div></div></button>`;
+  }).join("");
+  const tab = pickTab;
+  items.forEach((it, i) => {
+    if (tab === "window") {
+      iconFor(it.path).then((src) => {
+        if (!src || pickTab !== tab) return;
+        const el = document.querySelector(`[data-icon="${i}"]`); if (el) el.innerHTML = `<img src="${src}">`;
+        const big = document.querySelector(`[data-thumb="${i}"] .big`); if (big) big.innerHTML = `<img src="${src}">`;
+      });
+    }
+    api().thumb(tab, tab === "window" ? it.hwnd : it.id).then((src) => {
+      if (!src || pickTab !== tab) return;
+      const el = document.querySelector(`[data-thumb="${i}"]`); if (el) el.innerHTML = `<img src="${src}">`;
+    }).catch(() => {});
+  });
+}
+
+async function pick(i) {
+  const it = (pickTab === "window" ? SOURCES.windows : SOURCES.screens)[i];
+  if (!it) return;
+  if (pickTab === "window") await save({ source: "window", window_hwnd: it.hwnd, window_exe: it.exe, window_title: it.title });
+  else await save({ source: "screen", monitor: it.id });
+  $("pickerBg").classList.add("hidden");
+  refreshPreview();
+}
+
+// ---------------------------------------------------------------- login
+function renderLogin() {
+  const L = ST.login;
+  if (!L) { $("loginBg").classList.add("hidden"); lastLogin = null; return; }
+  const name = (INFO.platforms.find((p) => p.id === L.platform) || {}).name || "";
+  if (L.stage === "done") {
+    if (lastLogin !== "done") toast(`Connected to ${name} as ${L.user.name}`);
+    lastLogin = "done";
+    api().dismiss_login();
+    $("loginBg").classList.add("hidden");
+    return;
+  }
+  const key = L.stage + (L.code || "") + (L.error || "");
+  if (lastLogin === key) return;
+  lastLogin = key;
+  $("loginBg").classList.remove("hidden");
+  $("loginTitle").textContent = `Log in with ${name}`;
+  let h = "";
+  if (L.stage === "code") {
+    h = `<p style="margin:0">We opened <b>twitch.tv/activate</b> in your browser. Make sure this code matches, then click <b>Authorize</b>:</p>
+      <div class="code">${esc(L.code)}</div>
+      <div class="row"><button class="btn" data-url="${esc(L.url)}">Open Twitch again</button><button class="btn ghost" data-act="cancel-login">Cancel</button></div>`;
+  } else if (L.stage === "browser") {
+    h = `<div style="display:flex;gap:14px;align-items:center"><svg class="spin" width="28" height="28" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke="#8b5cf6" stroke-width="3" fill="none" stroke-dasharray="40 20"/></svg>
+      <p style="margin:0">Finish logging in in your browser. This window updates by itself.</p></div>
+      <div class="row" style="margin-top:16px"><button class="btn" data-url="${esc(L.url)}">Open browser again</button><button class="btn ghost" data-act="cancel-login">Cancel</button></div>`;
+  } else if (L.stage === "error") {
+    h = `<p class="msg"><span class="err">${esc(L.error)}</span></p><div class="row"><button class="btn" data-act="close-login">OK</button></div>`;
+  } else {
+    h = `<p class="hint">Connecting…</p>`;
+  }
+  $("loginBody").innerHTML = h;
+}
+
+// ---------------------------------------------------------------- status
+function fmtTime(t) {
+  t = Math.floor(t || 0);
+  return [Math.floor(t / 3600), Math.floor(t / 60) % 60, t % 60].map((n) => String(n).padStart(2, "0")).join(":");
+}
+
+function renderStatus() {
+  const p = ST.phase, live = ST.live;
+  // boot overlay
+  const booting = ["boot", "download", "detecting", "tuning"].includes(p) || (p === "error" && !live);
+  $("boot").classList.toggle("hidden", !booting);
+  if (booting) {
+    const bar = $("bootBar"), d = ST.download, t = ST.tune;
+    $("bootErr").classList.toggle("hidden", p !== "error");
+    $("bootTitle").textContent = p === "tuning" ? "Speed test" : p === "error" ? "Something's off" : "LiteCast";
+    $("bootText").textContent = p === "error" ? ST.error : ST.note;
+    $("bootSub").textContent = p === "tuning" && t ? `Test ${t.i + 1} of ${t.n}${t.label ? " · " + t.label : ""}` :
+      p === "tuning" ? "" : p === "download" && d && d.total ? `${(d.done / 1048576).toFixed(0)} / ${(d.total / 1048576).toFixed(0)} MB` : "";
+    bar.classList.toggle("hidden", p === "error");
+    if (p === "download" && d && d.total) { bar.classList.remove("indet"); bar.firstElementChild.style.width = (100 * d.done / d.total).toFixed(1) + "%"; }
+    else if (p === "tuning" && t && t.n) { bar.classList.remove("indet"); bar.firstElementChild.style.width = (100 * (t.i + 0.5) / t.n).toFixed(1) + "%"; }
+    else { bar.classList.add("indet"); bar.firstElementChild.style.width = "30%"; }
+  }
+  if (lastPhase !== p && p === "ready" && ["tuning", "detecting", "boot"].includes(lastPhase)) refreshPreview();
+  lastPhase = p;
+
+  // pill
+  const pill = $("pill");
+  if (live) {
+    pill.className = "pill live";
+    $("pillText").textContent = (live.mode === "record" ? "REC " : live.stream_dead ? "REC (stream failed) " : live.mode === "both" ? "LIVE + REC " : "LIVE ") + fmtTime(live.elapsed);
+  } else if (p === "ready") { pill.className = "pill ok"; $("pillText").textContent = "Ready"; }
+  else if (p === "starting" || p === "stopping") { pill.className = "pill busy"; $("pillText").textContent = p === "starting" ? "Starting…" : "Saving…"; }
+  else { pill.className = "pill busy"; $("pillText").textContent = p === "tuning" ? "Speed test…" : "Getting ready…"; }
+
+  // go button
+  const go = $("go");
+  const running = !!live || p === "stopping";
+  go.classList.toggle("stop", running);
+  go.disabled = !(p === "ready" || p === "live");
+  $("goText").textContent = running ? (p === "stopping" ? "Saving…" : "Stop") :
+    p === "starting" ? "Starting…" : { record: "Start recording", stream: "Go live", both: "Go live + record" }[S.mode];
+  document.querySelectorAll("main input, main select, main .seg button, main .plat, main .preset, #changeSrc, #browse, #retune, #acctBox button, #acctBox a")
+    .forEach((el) => { el.disabled = running || p === "starting"; el.style.pointerEvents = running || p === "starting" ? "none" : ""; });
+
+  // stats
+  $("stats").classList.toggle("hidden", !live);
+  if (live) {
+    $("sTime").textContent = fmtTime(live.elapsed);
+    $("sFps").textContent = Math.round(live.fps);
+    $("sFpsBox").classList.toggle("bad", live.fps < live.target_fps * 0.85 && live.elapsed > 6);
+    $("sKbps").textContent = live.kbps ? Math.round(live.kbps) : "-";
+    $("sDrop").textContent = live.drop;
+    $("sDropBox").classList.toggle("bad", live.drop > 0);
+  }
+
+  // message area
+  let m = "";
+  if (ST.error) m += `<div class="err">${esc(ST.error)}</div>`;
+  else if (ST.note && !live && p !== "starting") m += `<div class="note ${/^Saved|Ready/.test(ST.note) ? "ok" : ""}">${esc(ST.note)}${/^Saved/.test(ST.note) ? ' · <a data-act="open-dir">Open folder</a>' : ""}</div>`;
+  else if (p === "starting") m += `<div class="note">${esc(ST.note)}</div>`;
+  if (ST.warn) m += `<div class="warn">${esc(ST.warn)}</div>`;
+  if (ST.detail) m += `<div class="detail" title="${esc(ST.detail)}">${esc(ST.detail)}</div>`;
+  if ($("msg").dataset.html !== m) { $("msg").innerHTML = m; $("msg").dataset.html = m; }
+
+  // engine + encoders
+  $("planLabel").textContent = ST.plan || (p === "ready" ? "Ready" : "Checking your PC…");
+  $("planHint").textContent = /100% GPU/.test(ST.plan || "") ? "Frames never touch your CPU - lightest possible." :
+    /CPU \(slowest\)/.test(ST.plan || "") ? "No GPU encoder found - use Potato or Low for smooth video." :
+    "LiteCast picked the fastest method that worked on your PC.";
+  const encs = [{ id: "auto", label: "Auto (fastest)" }].concat(ST.encoders || []);
+  const encHtml = encs.map((e) => `<option value="${e.id}">${esc(e.label)}</option>`).join("");
+  if ($("encoder").dataset.html !== encHtml) { $("encoder").innerHTML = encHtml; $("encoder").dataset.html = encHtml; }
+  $("encoder").value = encs.some((e) => e.id === S.encoder) ? S.encoder : "auto";
+  fillAudio(ST.audio || []);
+  renderPlatforms();
+  renderLogin();
+}
+
+function fillAudio(devs) {
+  for (const [id, key] of [["mic", "mic"], ["desk", "desktop_audio"]]) {
+    const sel = $(id), cur = S[key] || "";
+    const list = [""].concat(devs);
+    if (cur && !list.includes(cur)) list.push(cur);
+    const html = list.map((d) => `<option value="${esc(d)}">${d ? esc(d) : "None"}</option>`).join("");
+    if (sel.dataset.html !== html) { sel.innerHTML = html; sel.dataset.html = html; }
+    sel.value = cur;
+  }
+}
+
+async function poll() {
+  try { ST = await api().status(); renderStatus(); } catch (e) { /* bridge busy */ }
+  setTimeout(poll, ST.live ? 500 : 400);
+}
+
+// ---------------------------------------------------------------- events
+document.addEventListener("click", async (ev) => {
+  const t = ev.target.closest("button, a");
+  if (!t) return;
+  if (t.dataset.url) { ev.preventDefault(); api().open_url(t.dataset.url); return; }
+  const act = t.dataset.act;
+  if (act === "login") api().login(S.platform);
+  else if (act === "logout") { await api().logout(S.platform); toast("Logged out"); }
+  else if (act === "manual") { manualKey[S.platform] = true; renderAccount(); }
+  else if (act === "unmanual") { manualKey[S.platform] = false; renderAccount(); }
+  else if (act === "showkey") { keyShown = !keyShown; renderAccount(); }
+  else if (act === "cancel-login") api().cancel_login();
+  else if (act === "close-login") api().dismiss_login();
+  else if (act === "open-dir") api().open_folder();
+  else if (t.closest("#mode")) save({ mode: t.dataset.v });
+  else if (t.classList.contains("plat")) save({ platform: t.dataset.id });
+  else if (t.classList.contains("preset")) {
+    const p = INFO.presets.find((x) => x.id === t.dataset.p);
+    save({ preset: p.id, height: p.height, fps: p.fps, bitrate: p.kbps });
+  } else if (t.classList.contains("pick")) pick(+t.dataset.i);
+  else if (t.closest("#pickTabs")) { pickTab = t.dataset.v; renderPicker(); }
+});
+
+document.addEventListener("change", (ev) => {
+  const id = ev.target.id, v = ev.target.value;
+  if (id === "mic") save({ mic: v });
+  else if (id === "desk") save({ desktop_audio: v });
+  else if (id === "container") save({ container: v });
+  else if (id === "height") save({ height: +v, preset: "Custom" });
+  else if (id === "fps") save({ fps: +v, preset: "Custom" });
+  else if (id === "bitrate") save({ bitrate: +v || 3500, preset: "Custom" });
+  else if (id === "encoder") save({ encoder: v });
+  else if (id === "mouse") save({ draw_mouse: ev.target.checked });
+  else if (id === "privacy") save({ yt_privacy: v });
+});
+
+document.addEventListener("input", (ev) => {
+  const id = ev.target.id, v = ev.target.value;
+  clearTimeout(document.inputT);
+  document.inputT = setTimeout(() => {
+    if (id === "skey") save({ stream_keys: Object.assign({}, S.stream_keys, { [S.platform]: v.trim() }) });
+    else if (id === "server") save({ custom_server: v.trim() });
+    else if (id === "title") save({ stream_title: v });
+  }, 250);
+});
+
+$("preview").addEventListener("click", openPicker);
+$("pickClose").addEventListener("click", () => $("pickerBg").classList.add("hidden"));
+$("pickRefresh").addEventListener("click", async () => { await loadSources(); renderPicker(); });
+$("pickerBg").addEventListener("click", (e) => { if (e.target.id === "pickerBg") $("pickerBg").classList.add("hidden"); });
+$("loginClose").addEventListener("click", () => api().cancel_login());
+$("browse").addEventListener("click", async () => { const p = await api().browse_folder(); if (p) { S.out_dir = p; renderSettings(); } });
+$("openDir").addEventListener("click", () => api().open_folder());
+$("retune").addEventListener("click", () => api().retune());
+$("openLogs").addEventListener("click", () => api().open_logs());
+$("bootRetry").addEventListener("click", () => api().retry_boot());
+$("copyDiag").addEventListener("click", async () => {
+  const text = await api().diagnostics();
+  try { await navigator.clipboard.writeText(text); toast("Diagnostics copied - paste them to whoever's helping you"); }
+  catch (e) { toast("Couldn't copy - open the logs folder instead", true); }
+});
+$("go").addEventListener("click", toggleGo);
+document.addEventListener("keydown", (e) => { if (e.key === "F9") { e.preventDefault(); toggleGo(); } if (e.key === "Escape") $("pickerBg").classList.add("hidden"); });
+
+async function toggleGo() {
+  if (ST.live) { await api().stop(); return; }
+  if (ST.phase !== "ready") return;
+  if (S.source === "window" && !S.window_exe) { openPicker(); return toast("Pick the app you want to capture"); }
+  const res = await api().start();
+  if (!res.ok) toast(res.error, true);
+}
+
+async function selftest() {
+  const want = ["go", "preview", "plats", "presets", "mic", "boot"];
+  const missing = want.filter((id) => !$(id));
+  let st = null;
+  for (let i = 0; i < 120; i++) {
+    st = await api().status();
+    if (["ready", "error"].includes(st.phase)) break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  const src = await api().sources();
+  api().selftest_report({ ok: missing.length === 0 && !!st, missing, phase: st && st.phase, plan: st && st.plan,
+    error: st && st.error, windows: src.windows.length, screens: src.screens.length, ua: navigator.userAgent });
+}
+
+async function start() {
+  INFO = await api().init();
+  S = INFO.settings;
+  $("ver").textContent = "v" + INFO.version;
+  if (!INFO.can_pick_windows) $("changeSrc").textContent = "Change screen";
+  renderSettings();
+  poll();
+  loadSources().then(refreshPreview);
+  setInterval(() => { if (!ST.live && document.visibilityState === "visible" && $("pickerBg").classList.contains("hidden")) refreshPreview(); }, 8000);
+  if (INFO.selftest) selftest();
+}
+
+if (window.pywebview && window.pywebview.api && window.pywebview.api.init) start();
+else window.addEventListener("pywebviewready", start, { once: true });
+</script>
+</body>
+</html>

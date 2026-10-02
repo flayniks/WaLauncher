@@ -1,56 +1,57 @@
-# WaLauncher
+# LiteCast
 
-A tiny streamer + recorder for weak laptops. Think OBS with all the heavy stuff ripped out.
+A tiny streamer + recorder for weak laptops. Like OBS with all the heavy stuff ripped out.
 
-## Why it lags less than OBS
+- **Pick a single app** (your game, Chrome, Discord…) or a whole screen, with live thumbnails.
+- **Log in with Twitch, YouTube or Kick** and hit Go live: no copying stream keys. (Or paste a key, or use any custom RTMP server.)
+- **Record, stream, or both** at once.
 
-- **No live preview.** OBS redraws your whole screen in its window all the time. This doesn't.
-- **GPU screen grab.** On Windows it uses Desktop Duplication (same thing OBS's display capture uses) instead of slow screenshots.
-- **GPU encoding.** Auto-detects NVIDIA (NVENC), AMD (AMF) or Intel (QuickSync) and uses the first one that works. CPU (x264 ultrafast) only if there's no GPU encoder.
-- **One cheap resize pass**, low-latency encoder settings, no scenes/sources/filters.
+## Why it doesn't lag
 
-It's all powered by [FFmpeg](https://ffmpeg.org) under the hood.
+- **No live preview and no scene compositor.** That's most of what makes OBS heavy.
+- **100% GPU pipeline.** On Windows the picture is grabbed by the GPU (Desktop Duplication / Windows Graphics Capture), resized on the GPU, and fed straight into the GPU's video encoder (NVIDIA NVENC, AMD AMF or Intel QuickSync). Frames never get copied through your CPU.
+- **Speed test on first launch.** Every laptop is different, so LiteCast tries each capture method for a few seconds and keeps the fastest one that holds full frame rate. It re-tests when you change quality. You can re-run it from *Quality → Re-test*.
+- If your PC still can't keep up, it tells you live ("only getting 18 of 30 fps") so you know to pick a lower preset.
 
-## Get it (Windows)
+## Get it (Windows 10/11)
 
-**Easy way:** grab `WaLauncher.exe` from the repo's **Actions** tab (latest "Build Windows app" run → Artifacts) or from **Releases**, then double-click it.
-First launch asks to download FFmpeg (~90 MB, one time).
+Grab `LiteCast.exe` from the repo's **Actions** tab (latest "Build Windows app" run → Artifacts) or from **Releases**, and double-click it.
+First launch downloads FFmpeg (~90 MB, one time) and runs the speed test (about 10 seconds).
 
-**From source:** install Python 3.8+ from python.org (tick "Add python.exe to PATH"), then double-click `run.bat`.
+> Windows SmartScreen may warn about an unsigned app: click *More info* → *Run anyway*.
+> LiteCast uses the Edge WebView2 runtime that ships with Windows 10/11. If it's missing, the app links you to the free download.
 
-> Windows SmartScreen may warn about an unsigned app. Click "More info" → "Run anyway".
+From source: install Python 3.9+ and double-click `run.bat` (or `pip install pywebview` then `python -m litecast`).
 
 ## Use it
 
-1. Pick **Record**, **Stream**, or **Stream + Record**.
-2. Streaming? Pick Twitch/YouTube and paste your stream key.
-   - Twitch: Creator Dashboard → Settings → Stream
-   - YouTube: Studio → Go live → Stream
-   - Kick / anything else: pick **Custom** and paste the server URL + key.
-3. Pick a preset. Start with **Balanced - 720p 30fps**.
-4. Hit **START** (or press **F9** while the window is focused).
+1. **What you're capturing:** click the preview → pick an app or a screen.
+2. **Where it goes:** Record, Stream, or Stream + Record. For streaming, pick the platform and **Log in** (or paste your stream key).
+3. **Quality:** start with **Balanced (720p 30fps)**. On a potato, use **Potato** or **Low**.
+4. Hit **Go live** / **Start recording** (or **F9**).
 
-If you see *"Your laptop can't keep up"*, stop and go down a preset (Low or Potato).
+## Tips for weak laptops
 
-## Tips for potato laptops
-
-- **720p 30fps** is the sweet spot. 60fps doubles the work.
+- 720p 30fps is the sweet spot. 60fps is double the work.
 - Plug in the charger and set Windows power mode to **Best performance**.
-- Close Chrome, Discord overlay, etc. while streaming.
-- Black screen when capturing a game? Switch the game to **borderless / windowed fullscreen**.
-- Bitrate: keep it under ~70% of your upload speed (run a speed test). Twitch tops out at 6000.
-- Recordings default to **.mkv** so they survive a crash. Want mp4? Pick it in Format.
+- Capturing a game? Run it **windowed or borderless**; exclusive fullscreen can't be captured by any app without hooking into the game.
+- Gaming laptop with two GPUs? If capture is slow, open Windows *Settings → Display → Graphics*, add `LiteCast.exe` and FFmpeg (`%APPDATA%\LiteCast\ffmpeg.exe`), and set both to the same GPU your game uses. Then hit *Re-test*.
+- Still laggy? *Quality → Advanced → Copy diagnostics* and send that to whoever's helping you.
 
-## Game / PC audio
+## Game / PC sound
 
-Windows needs a recording device that "hears" your PC:
-Sound settings → More sound settings → **Recording** tab → right-click → *Show disabled devices* → enable **Stereo Mix**, then pick it as *Game/PC audio*.
-No Stereo Mix on your laptop? Install [screen-capture-recorder](https://github.com/rdp/screen-capture-recorder-to-video-windows-free) and pick **virtual-audio-capturer**.
+Windows needs a recording device that "hears" your PC: Sound settings → More sound settings → **Recording** → right-click → *Show disabled devices* → enable **Stereo Mix**. No Stereo Mix? Install [screen-capture-recorder](https://github.com/rdp/screen-capture-recorder-to-video-windows-free) and pick **virtual-audio-capturer**.
 
-## Other stuff
+## "Log in with…" buttons
 
-- Settings live in `%APPDATA%\WaLauncher\settings.json` (includes your stream key, don't share that file).
-- If the fast capture fails, it automatically falls back to compatibility capture.
-- Stream drops (Stream mode) auto-reconnect up to 5 times.
-- Linux (X11) and macOS work too; install FFmpeg yourself (`sudo apt install ffmpeg` / `brew install ffmpeg`) and run `python3 -m walauncher`.
-- Tests: `python -m unittest discover -s tests -t .`
+Each site requires the app to be registered once (free, about 5 minutes). Until then LiteCast shows a stream key box instead. See [LOGIN_SETUP.md](LOGIN_SETUP.md).
+
+## Files
+
+- Settings, logins and logs: `%APPDATA%\LiteCast\` (the `logs` folder has the last session and the speed test).
+- Recordings: your *Videos* folder by default, as `.mkv` (survives crashes) or `.mp4`.
+
+## Dev
+
+- `python -m unittest discover -s tests -t .` runs the tests (FFmpeg on PATH enables the real-capture ones).
+- `python tools/devserver.py --fake-logins out --fake-windows` serves the real UI in a normal browser at http://127.0.0.1:8765 for UI work on any OS.
