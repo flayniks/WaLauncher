@@ -342,6 +342,7 @@ class Target:
     rect: tuple = None  # (x, y, w, h) of the monitor, when known
     hwnd: int = 0
     title: str = ""
+    hmonitor: int = 0  # for gfxcapture screen capture
 
 
 @dataclass
@@ -380,18 +381,30 @@ def out_size(s, target):
     return even(round(s.height * sw / float(sh))), even(s.height)
 
 
+MAX_CANDIDATES = 9
+
+
 def candidates(caps, s):
     """Pipelines to try for screen capture, most efficient first."""
     encs = caps.encoders if s.encoder == "auto" else [s.encoder] + [e for e in caps.encoders if e != s.encoder]
     plans = []
     if IS_WIN and "ddagrab" in caps.filters:
         gpu_scale = "scale_d3d11" in caps.filters
-        for enc in encs:
+
+        def gpu_paths(capture, enc):
+            out = []
             if gpu_scale and enc in ZERO_COPY_ENCODERS and (enc != "h264_qsv" or "hwmap" in caps.filters):
-                plans.append(Plan("ddagrab", "zerocopy", enc))
+                out.append(Plan(capture, "zerocopy", enc))
             if gpu_scale:
-                plans.append(Plan("ddagrab", "gpuscale", enc))
-            plans.append(Plan("ddagrab", "cpu", enc))
+                out.append(Plan(capture, "gpuscale", enc))
+            return out
+
+        for i, enc in enumerate(encs):
+            plans += gpu_paths("ddagrab", enc) + [Plan("ddagrab", "cpu", enc)]
+            if i == 0 and "gfxcapture" in caps.filters:
+                # Windows Graphics Capture copes better with some two-GPU laptops.
+                plans += gpu_paths("gfxcapture", enc) or [Plan("gfxcapture", "cpu", enc)]
+        plans = plans[:MAX_CANDIDATES - 1]
         plans.append(Plan("gdigrab", "cpu", encs[0] if encs else "libx264"))
     elif IS_WIN:
         plans += [Plan("gdigrab", "cpu", enc) for enc in encs]
@@ -433,7 +446,10 @@ def video_graph(plan, s, target):
         return [], ",".join(chain) + "[v]", 0
 
     if plan.capture == "gfxcapture":
-        sel = "hwnd=%d" % target.hwnd if target.kind == "window" else "monitor_idx=%d" % target.monitor
+        if target.kind == "window":
+            sel = "hwnd=%d" % target.hwnd
+        else:
+            sel = "hmonitor=%d" % target.hmonitor if target.hmonitor else "monitor_idx=%d" % target.monitor
         if s.height:  # fixed 16:9 canvas, app letterboxed into it, scaled on the GPU
             size = "width=%d:height=%d:resize_mode=scale_aspect" % (even(round(s.height * 16 / 9.0)), even(s.height))
         else:

@@ -223,7 +223,7 @@ def find_window(hwnd=0, exe="", title=""):
 
 
 def list_monitors():
-    """[{x, y, w, h, primary}] with the primary monitor first."""
+    """[{x, y, w, h, primary, handle}] with the primary monitor first."""
     if not IS_WIN:
         return []
     mons = []
@@ -234,7 +234,7 @@ def list_monitors():
         if user32.GetMonitorInfoW(hmon, ctypes.byref(info)):
             r = info.rcMonitor
             mons.append({"x": r.left, "y": r.top, "w": r.right - r.left, "h": r.bottom - r.top,
-                         "primary": bool(info.dwFlags & 1)})
+                         "primary": bool(info.dwFlags & 1), "handle": int(hmon or 0)})
         return True
 
     try:

@@ -77,6 +77,11 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(keys[:3], ["ddagrab/zerocopy/h264_qsv", "ddagrab/gpuscale/h264_qsv", "ddagrab/cpu/h264_qsv"])
         self.assertNotIn("ddagrab/zerocopy/h264_mf", keys)  # MF can't take GPU frames
         self.assertEqual(keys[-1], "gdigrab/cpu/h264_qsv")  # slow screenshot capture only as last resort
+        self.assertLessEqual(len(keys), E.MAX_CANDIDATES)
+        caps = E.Caps(filters=WIN_CAPS.filters, encoders=["h264_nvenc", "libx264"])
+        keys = [p.key() for p in E.candidates(caps, settings())]
+        self.assertIn("gfxcapture/zerocopy/h264_nvenc", keys)
+        self.assertLess(keys.index("gfxcapture/zerocopy/h264_nvenc"), keys.index("ddagrab/cpu/libx264"))
 
     @mock.patch.object(E, "IS_WIN", True)
     def test_chosen_encoder_goes_first(self):
@@ -88,6 +93,11 @@ class PlanTests(unittest.TestCase):
         caps = E.Caps(filters={"ddagrab", "hwdownload"}, encoders=["h264_nvenc"])
         self.assertEqual([p.key() for p in E.candidates(caps, settings())],
                          ["ddagrab/cpu/h264_nvenc", "gdigrab/cpu/h264_nvenc"])
+
+    def test_gfxcapture_screen_uses_monitor_handle(self):
+        target = E.Target(rect=(0, 0, 1920, 1080), hmonitor=65537)
+        _, graph, _ = E.video_graph(E.Plan("gfxcapture", "zerocopy", "h264_amf"), settings(), target)
+        self.assertTrue(graph.startswith("gfxcapture=hmonitor=65537:"))
 
     def test_zero_copy_graph_qsv(self):
         _, graph, n = E.video_graph(E.Plan("ddagrab", "zerocopy", "h264_qsv"), settings(), SCREEN)

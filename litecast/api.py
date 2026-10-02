@@ -83,7 +83,7 @@ class Api:
         s = self._s
         mon = self._monitors[s.monitor] if s.monitor < len(self._monitors) else None
         rect = (mon["x"], mon["y"], mon["w"], mon["h"]) if mon else None
-        return E.Target(kind="screen", monitor=s.monitor, rect=rect)
+        return E.Target(kind="screen", monitor=s.monitor, rect=rect, hmonitor=mon.get("handle", 0) if mon else 0)
 
     def _plan(self):
         key = self._s.tuned.get(E.tune_key(self._s, self._target()))
