@@ -299,6 +299,65 @@ class Api:
     def logout(self, pid):
         self._accounts.logout(pid)
 
+    # ------------------------------------------------------------ JS: stream info (title, category, tags…)
+
+    def _logged_in(self, pid):
+        return bool((self._accounts.data.get(pid) or {}).get("profile"))
+
+    def stream_info(self, pid):
+        """Saved info for a platform, refreshed from what's currently set on the platform."""
+        local = A.clean_info(pid, self._s.stream_info.get(pid))
+        res = {"info": local, "error": "", "languages": A.LANGUAGES,
+               "labels": A.Twitch.LABELS, "yt_categories": [{"id": i, "name": n} for i, n in A.YouTube.CATEGORIES]}
+        if pid in ("twitch", "kick") and self._logged_in(pid):
+            try:
+                remote = self._accounts.channel_info(pid)
+            except Exception as e:
+                res["error"] = "Couldn't load your current %s info (%s)." % (E.PLATFORMS[pid]["name"], e)
+                remote = None
+            if remote:
+                merged = dict(local)
+                merged.update({k: v for k, v in remote.items() if v not in (None, "")})
+                res["info"] = A.clean_info(pid, merged)
+        return res
+
+    def save_stream_info(self, pid, info):
+        if pid not in E.PLATFORMS:
+            return None
+        clean = A.clean_info(pid, info)
+        with self._lock:
+            self._s.stream_info[pid] = clean
+            try:
+                self._s.save()
+            except OSError:
+                pass
+        return clean
+
+    def search_categories(self, pid, query):
+        query = (query or "").strip()
+        if not query:
+            return []
+        if pid == "youtube" or not self._logged_in(pid):
+            return [{"id": i, "name": n, "img": ""} for i, n in A.YouTube.CATEGORIES
+                    if query.lower() in n.lower()] if pid == "youtube" else []
+        try:
+            return self._accounts.search_categories(pid, query)[:10]
+        except Exception:
+            return []
+
+    def apply_stream_info(self, pid, info):
+        """Save the info and push it to the platform right away (Twitch/Kick any time, YouTube while live)."""
+        clean = self.save_stream_info(pid, info)
+        if not self._logged_in(pid) or (pid == "youtube" and self._phase != "live"):
+            return {"ok": True, "info": clean, "pushed": False}
+        try:
+            self._accounts.update_info(pid, clean)
+        except A.AuthError as e:
+            return {"ok": False, "error": str(e)}
+        except Exception as e:
+            return {"ok": False, "error": "Couldn't update: %s" % e, "info": clean}
+        return {"ok": True, "info": clean, "pushed": True}
+
     # ------------------------------------------------------------ JS: go live / stop
 
     def start(self):
@@ -332,7 +391,7 @@ class Api:
                 acct = (self._accounts.data.get(s.platform) or {}).get("profile")
                 if acct:
                     self._set(note="Getting your stream key from %s…" % E.PLATFORMS[s.platform]["name"])
-                    server, key, warn = self._accounts.go_live(s.platform, s.stream_title, s.yt_privacy)
+                    server, key, warn = self._accounts.go_live(s.platform, s.stream_info.get(s.platform) or {})
                     if warn:
                         self._set(warn=warn)
                 else:
@@ -476,6 +535,9 @@ class Api:
             self._error = msg if error else ""
             self._detail = detail[:400]
             self._run["last_path"] = self._run.get("path")
+        yt = getattr(self._accounts, "platforms", {}).get("youtube")
+        if yt is not None:
+            yt.live_video = None  # that broadcast is over
 
     # ------------------------------------------------------------ JS: misc
 

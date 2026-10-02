@@ -5,6 +5,7 @@ A tiny streamer + recorder for weak laptops. Like OBS with all the heavy stuff r
 - **Pick a single app** (your game, Chrome, Discord…) or a whole screen, with live thumbnails.
 - **Log in with Twitch, YouTube or Kick** and hit Go live: no copying stream keys. (Or paste a key, or use any custom RTMP server.)
 - **Record, stream, or both** at once.
+- **Set your stream info before you go live** (and change it while live): title, category/game, tags, language and content warnings on Twitch; title, description, tags, category, privacy and made-for-kids on YouTube; title, category and tags on Kick.
 
 ## Why it doesn't lag
 

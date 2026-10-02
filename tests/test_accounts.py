@@ -59,11 +59,16 @@ class AccountsTests(unittest.TestCase):
         self.assertEqual(progress[0]["code"], "ABCD")
         self.assertEqual(opened, ["https://twitch.tv/activate?x"])
         self.assertEqual(acc.summary()["twitch"]["user"]["name"], "P")
-        url, key, warn = acc.go_live("twitch", "My title")
+        url, key, warn = acc.go_live("twitch", {"title": "My title", "tags": ["Just Chatting", "fun!"],
+                                                "category": {"id": "509658", "name": "Just Chatting"},
+                                                "labels": ["Gambling"], "language": "en"})
         self.assertEqual((url, key, warn), ("rtmp://live.twitch.tv/app", "live_9_x", ""))
-        patch = next(c for c in http.calls if c[0] == "PATCH")
-        self.assertEqual(patch[3], {"title": "My title"})
-        self.assertIn("broadcaster_id=9", patch[1])
+        patch = next(c for c in http.calls if c[0] == "PATCH")[3]
+        self.assertEqual((patch["title"], patch["game_id"], patch["tags"], patch["broadcaster_language"]),
+                         ("My title", "509658", ["JustChatting", "fun"], "en"))
+        self.assertIn({"id": "Gambling", "is_enabled": True}, patch["content_classification_labels"])
+        self.assertIn({"id": "SexualThemes", "is_enabled": False}, patch["content_classification_labels"])
+        self.assertTrue(any(c[0] == "PATCH" and "broadcaster_id=9" in c[1] for c in http.calls))
         # persisted
         self.assertTrue(A.Accounts(self.path, CREDS, http=http).summary()["twitch"]["user"])
 
@@ -113,13 +118,22 @@ class AccountsTests(unittest.TestCase):
                 "ingestionAddress": "rtmp://a.rtmp.youtube.com/live2", "streamName": "yt-key"}}})),
             ("liveBroadcasts/bind", (200, {})),
             ("liveBroadcasts?part", (200, {"id": "B1"})),
+            ("videos?part=snippet", (200, {})),
         ])
         acc = A.Accounts(self.path, CREDS, http=http, open_url=fake_browser)
         self.assertEqual(acc.login("youtube")["name"], "Chan")
-        url, key, _ = acc.go_live("youtube", "hi", "unlisted")
-        self.assertEqual((url, key), ("rtmp://a.rtmp.youtube.com/live2", "yt-key"))
+        url, key, warn = acc.go_live("youtube", {"title": "hi", "description": "about", "privacy": "unlisted",
+                                                 "tags": ["speed run"], "category": {"id": "24", "name": "Ent"},
+                                                 "kids": True})
+        self.assertEqual((url, key, warn), ("rtmp://a.rtmp.youtube.com/live2", "yt-key", ""))
         bc = next(c for c in http.calls if "liveBroadcasts?part" in c[1])
         self.assertEqual(bc[3]["status"]["privacyStatus"], "unlisted")
+        self.assertTrue(bc[3]["status"]["selfDeclaredMadeForKids"])
+        self.assertEqual(bc[3]["snippet"]["description"], "about")
+        vid = next(c for c in http.calls if c[0] == "PUT" and "videos?part=snippet" in c[1])[3]
+        self.assertEqual((vid["id"], vid["snippet"]["tags"], vid["snippet"]["categoryId"]), ("B1", ["speed run"], "24"))
+        acc.update_info("youtube", {"title": "new title"})
+        self.assertEqual(http.calls[-1][3]["snippet"]["title"], "new title")
         self.assertTrue(bc[3]["contentDetails"]["enableAutoStart"])
         self.assertTrue(any("bind?id=B1" in c[1] and "streamId=S1" in c[1] for c in http.calls))
 
@@ -127,14 +141,45 @@ class AccountsTests(unittest.TestCase):
         http = FakeHttp([("liveStreams", (403, {"error": {"errors": [{"reason": "liveStreamingNotEnabled"}]}}))])
         yt = A.YouTube(CREDS, http)
         with self.assertRaises(A.AuthError) as cm:
-            yt.go_live({"access_token": "a"}, {}, "", "public")
+            yt.go_live({"access_token": "a"}, {}, A.clean_info("youtube", {}))
         self.assertIn("youtube.com/features", str(cm.exception))
 
     def test_kick_stream_key(self):
         http = FakeHttp([("public/v1/channels", lambda f, b, h: (204, {}) if b else
                           (200, {"data": [{"stream": {"url": "rtmps://k.example/app/", "key": "sk_1"}}]}))])
-        url, key, warn = A.Kick(CREDS, http).go_live({"access_token": "a"}, {}, "title!", "")
+        kick = A.Kick(CREDS, http)
+        url, key, warn = kick.go_live({"access_token": "a"}, {}, A.clean_info("kick", {
+            "title": "title!", "tags": ["a b", "c"], "category": {"id": "15", "name": "x"}}))
         self.assertEqual((url, key, warn), ("rtmps://k.example/app/", "sk_1", ""))
+        patch = next(c for c in http.calls if c[0] == "PATCH")[3]
+        self.assertEqual(patch, {"stream_title": "title!", "category_id": 15, "custom_tags": ["ab", "c"]})
+
+    def test_channel_info_and_search(self):
+        http = FakeHttp([
+            ("helix/channels", (200, {"data": [{"title": "T", "game_id": "1", "game_name": "G", "tags": ["x"],
+                                                "broadcaster_language": "en", "content_classification_labels": ["Gambling", "Weird"],
+                                                "is_branded_content": True}]})),
+            ("helix/games", (200, {"data": [{"box_art_url": "https://b/{width}x{height}.jpg"}]})),
+            ("helix/search/categories", (200, {"data": [{"id": "5", "name": "Mine", "box_art_url": "https://b/5-{width}x{height}.jpg"}]})),
+            ("public/v2/categories", (200, {"data": []})),
+            ("public/v1/categories", (200, {"data": [{"id": 9, "name": "Rust", "thumbnail": "t"}]})),
+        ])
+        tw = A.Twitch(CREDS, http)
+        info = tw.channel_info({"access_token": "a"}, {"id": "1"})
+        self.assertEqual(info["category"], {"id": "1", "name": "G", "img": "https://b/52x72.jpg"})
+        self.assertEqual((info["labels"], info["branded"]), (["Gambling"], True))
+        self.assertEqual(tw.search_categories({"access_token": "a"}, "mi")[0]["img"], "https://b/5-52x72.jpg")
+        self.assertEqual(A.Kick(CREDS, http).search_categories({"access_token": "a"}, "rust"),
+                         [{"id": "9", "name": "Rust", "img": "t"}])
+        self.assertEqual(A.YouTube(CREDS, http).search_categories({}, "gam")[0]["id"], "20")
+
+    def test_clean_info(self):
+        self.assertEqual(A.clean_tags(["Just Chatting", "MINECRAFT", "minecraft", "x" * 40] + list("abcdefghij"), "twitch"),
+                         ["JustChatting", "MINECRAFT", "x" * 25] + list("abcdefg"))
+        yt = A.clean_info("youtube", {"privacy": "secret", "description": "d" * 6000})
+        self.assertEqual((yt["privacy"], len(yt["description"]), yt["category"]["id"]), ("public", 5000, "20"))
+        tw = A.clean_info("twitch", {"language": "xx", "labels": ["Gambling", "Nope"], "category": {"name": "no id"}})
+        self.assertEqual((tw["language"], tw["labels"], tw["category"]), ("", ["Gambling"], None))
 
     def test_loopback_rejects_wrong_state(self):
         catcher = A.LoopbackCatcher(0)

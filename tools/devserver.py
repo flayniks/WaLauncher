@@ -8,6 +8,7 @@ OUTDIR/<platform>.flv).
 """
 
 import argparse
+import urllib.parse
 import json
 import os
 import sys
@@ -25,8 +26,17 @@ SHIM = ("<script>window.pywebview={api:new Proxy({},{get:(_,n)=>(...a)=>fetch('/
         "{method:'POST',body:JSON.stringify(a)}).then(r=>r.json())})};</script>")
 
 
+GAMES = [("27471", "Minecraft"), ("33214", "Fortnite"), ("509658", "Just Chatting"), ("23692", "Roblox"),
+         ("21779", "League of Legends"), ("32982", "Grand Theft Auto V"), ("511224", "Apex Legends")]
+
+
+def _art(seed):
+    return "https://static-cdn.jtvnw.net/ttv-boxart/%s-{width}x{height}.jpg" % seed
+
+
 def fake_http(outdir):
     polls = {"n": 0}
+    state = {}
 
     def http(method, url, form=None, body=None, headers=None, timeout=20):
         if "id.twitch.tv/oauth2/device" in url:
@@ -40,8 +50,26 @@ def fake_http(outdir):
         if "helix/users" in url:
             return 200, {"data": [{"id": "42", "login": "potatostreamer", "display_name": "PotatoStreamer",
                                    "profile_image_url": ""}]}
-        if "helix/channels" in url:
+        if "helix/channels" in url and method == "PATCH":
+            state["twitch"] = body
             return 204, {}
+        if "helix/channels" in url:
+            ch = {"title": "Chill Minecraft stream", "game_id": "27471", "game_name": "Minecraft",
+                  "tags": ["Minecraft", "Chill"], "broadcaster_language": "en",
+                  "content_classification_labels": [], "is_branded_content": False}
+            p = state.get("twitch")
+            if p:
+                ch.update(title=p.get("title", ch["title"]), tags=p["tags"], is_branded_content=p["is_branded_content"],
+                          broadcaster_language=p.get("broadcaster_language", ch["broadcaster_language"]),
+                          content_classification_labels=[x["id"] for x in p["content_classification_labels"] if x["is_enabled"]])
+                if p.get("game_id"):
+                    ch.update(game_id=p["game_id"], game_name=dict(GAMES).get(p["game_id"], "?"))
+            return 200, {"data": [ch]}
+        if "helix/games" in url:
+            return 200, {"data": [{"box_art_url": _art("27471")}]}
+        if "helix/search/categories" in url:
+            q = urllib.parse.unquote(url.split("query=")[1]).lower()
+            return 200, {"data": [{"id": i, "name": n, "box_art_url": _art(i)} for i, n in GAMES if q in n.lower()]}
         if "helix/streams/key" in url:
             return 200, {"data": [{"stream_key": "live_fake"}]}
         if "youtube/v3/channels" in url:
@@ -51,7 +79,8 @@ def fake_http(outdir):
         return 404, {"message": "not faked: " + url}
 
     class FakeTwitch(A.Twitch):
-        def go_live(self, tok, prof, title, privacy):
+        def go_live(self, tok, prof, info):
+            self.apply_info(tok, prof, info)
             return outdir, "twitch.flv", ""
 
     class FakeYouTube(A.YouTube):
@@ -60,15 +89,20 @@ def fake_http(outdir):
             time.sleep(1.5)
             return A._expiry({"access_token": "tok", "refresh_token": "ref", "expires_in": 3600})
 
-        def go_live(self, tok, prof, title, privacy):
+        def go_live(self, tok, prof, info):
+            self.live_video = "vid1"
             return outdir, "youtube.flv", ""
+
+        def apply_info(self, tok, prof, info):
+            print("youtube update", info, flush=True)
 
     class FakeKick(A.Kick):
         login = FakeYouTube.login
 
-        def go_live(self, tok, prof, title, privacy):
+        def go_live(self, tok, prof, info):
             return outdir, "kick.flv", ""
 
+    http.state = state
     return http, (FakeTwitch, FakeYouTube, FakeKick)
 
 

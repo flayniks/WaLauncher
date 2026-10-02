@@ -93,8 +93,8 @@ class Settings:
     platform: str = "twitch"  # twitch | youtube | kick | custom
     custom_server: str = ""
     stream_keys: dict = field(default_factory=dict)  # platform -> pasted key (when not logged in)
-    stream_title: str = ""
-    yt_privacy: str = "public"
+    stream_info: dict = field(default_factory=dict)  # platform -> {title, category, tags, ...}
+    ask_info: bool = True  # show the stream info sheet before going live
     preset: str = "Balanced"
     height: int = 720  # 0 = native
     fps: int = 30
@@ -142,6 +142,10 @@ class Settings:
             s.platform = str(s.platform).lower() if str(s.platform).lower() in PLATFORMS else "twitch"
         if raw.get("stream_key") and not s.stream_keys.get(s.platform):
             s.stream_keys[s.platform] = raw["stream_key"]
+        if raw.get("stream_title") and not s.stream_info:
+            s.stream_info = {pid: {"title": raw["stream_title"]} for pid in ("twitch", "youtube", "kick")}
+        if raw.get("yt_privacy"):
+            s.stream_info.setdefault("youtube", {}).setdefault("privacy", raw["yt_privacy"])
         if s.preset not in PRESETS:
             s.preset = next((p for p in PRESETS if str(raw.get("preset", "")).startswith(p)), "Balanced")
         if not s.out_dir:

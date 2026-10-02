@@ -235,8 +235,45 @@ details.adv .stack { margin-top: 12px; }
 .pick .l b { font-size: 13px; }
 .pick .l small { color: var(--muted); font-size: 11.5px; }
 .code { font-family: var(--mono); font-size: 34px; font-weight: 800; letter-spacing: 6px; text-align: center; padding: 16px; border-radius: 12px; background: var(--bg); border: 1px dashed var(--line-2); margin: 14px 0; user-select: text; }
-.toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 60; padding: 10px 16px; border-radius: 12px; background: #24243a; border: 1px solid var(--line-2); box-shadow: 0 10px 30px rgba(0, 0, 0, .5); font-weight: 600; animation: pop .2s; max-width: 80vw; }
+.toast { position: fixed; left: 50%; top: 68px; transform: translateX(-50%); z-index: 60; padding: 10px 16px; border-radius: 12px; background: #24243a; border: 1px solid var(--line-2); box-shadow: 0 10px 30px rgba(0, 0, 0, .5); font-weight: 600; animation: pop .2s; max-width: 80vw; }
 .toast.err { border-color: rgba(255, 59, 92, .6); }
+
+/* ---------- stream info ---------- */
+.info-sum { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); cursor: pointer; }
+.info-sum:hover { border-color: var(--line-2); }
+.art { width: 40px; height: 54px; border-radius: 7px; background: var(--field); display: grid; place-items: center; overflow: hidden; flex: none; color: var(--faint); }
+.art img { width: 100%; height: 100%; object-fit: cover; }
+.info-sum .txt { flex: 1; min-width: 0; }
+.info-sum b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.info-sum b.none { color: var(--muted); font-weight: 600; }
+.info-sum small { color: var(--muted); font-size: 12.5px; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 4px 0 10px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--line-2); font-size: 12.5px; font-weight: 600; }
+.tag button { border: 0; background: transparent; color: var(--muted); width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; }
+.tag button:hover { color: var(--text); background: var(--line-2); }
+.tag.mini { height: 22px; padding: 0 9px; font-size: 11.5px; color: #c5c5d8; background: var(--field); border-color: var(--line); }
+.taginput { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 40px; padding: 6px 8px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--field); cursor: text; }
+.taginput:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139, 92, 246, .25); }
+.taginput input { flex: 1; min-width: 150px; border: 0; outline: 0; background: transparent; height: 26px; user-select: text; }
+textarea.input { height: auto; min-height: 100px; padding: 10px 12px; resize: vertical; line-height: 1.45; }
+.field .count { float: right; color: var(--faint); font-weight: 500; }
+.field > span { display: block; }
+.cat-wrap { position: relative; }
+.cat-pick { display: flex; align-items: center; gap: 10px; }
+.cat-pick .art { width: 30px; height: 40px; }
+.cat-results { position: absolute; left: 40px; right: 0; top: calc(100% + 4px); z-index: 5; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: 0 16px 40px rgba(0, 0, 0, .55); max-height: 290px; overflow-y: auto; padding: 4px; }
+.cat-results button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; background: transparent; padding: 6px 8px; border-radius: 8px; font-weight: 600; }
+.cat-results button:hover { background: var(--field); }
+.cat-results .art { width: 30px; height: 40px; }
+.cat-results .empty { padding: 10px; color: var(--muted); font-size: 13px; }
+.chipsel { display: flex; flex-wrap: wrap; gap: 6px; }
+.chipsel button { height: 30px; padding: 0 12px; border-radius: 99px; border: 1px solid var(--line-2); background: var(--field); color: var(--muted); font-weight: 600; font-size: 12.5px; }
+.chipsel button:hover { color: var(--text); }
+.chipsel button.on { color: #fff; border-color: var(--warn); background: rgba(251, 191, 36, .16); }
+.modal-f { display: flex; gap: 10px; align-items: center; padding: 14px 18px; border-top: 1px solid var(--line); }
+.modal-f .hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.go.small { height: 42px; min-width: 0; padding: 0 22px; font-size: 14px; border-radius: 12px; }
+.go.upd .rec { display: none; }
 
 @media (max-width: 900px) { .main { grid-template-columns: 1fr; } }
 ::-webkit-scrollbar { width: 10px; } ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 10px; border: 3px solid var(--bg); }
@@ -260,6 +297,8 @@ details.adv .stack { margin-top: 12px; }
     <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
     <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8L3 12z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="7.5" cy="8.5" r="1.5" fill="currentColor"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   </defs>
 </svg>
@@ -358,6 +397,7 @@ details.adv .stack { margin-top: 12px; }
       <div class="stat"><b id="sKbps">-</b><small>kbps</small></div>
       <div class="stat" id="sDropBox"><b id="sDrop">0</b><small>Dropped</small></div>
     </div>
+    <button class="btn hidden" id="editLive"><svg width="16" height="16"><use href="#i-edit"/></svg>Edit stream info</button>
     <div class="msg" id="msg"></div>
   </footer>
 </div>
@@ -400,6 +440,19 @@ details.adv .stack { margin-top: 12px; }
     <div class="modal-h"><h3 id="loginTitle">Log in</h3><div class="spacer"></div>
       <button class="btn small ghost" id="loginClose"><svg width="14" height="14"><use href="#i-x"/></svg></button></div>
     <div class="modal-b" id="loginBody"></div>
+  </div>
+</div>
+
+<!-- stream info -->
+<div class="modal-bg hidden" id="infoBg">
+  <div class="modal" style="width:min(660px,92vw)">
+    <div class="modal-h"><svg width="22" height="22" id="infoLogo"><use href="#i-twitch"/></svg><h3 id="infoTitle">Stream info</h3><div class="spacer"></div>
+      <button class="btn small ghost" data-act="close-info"><svg width="14" height="14"><use href="#i-x"/></svg></button></div>
+    <div class="modal-b" id="infoBody"></div>
+    <div class="modal-f"><span class="hint" id="infoNote"></span><div class="spacer"></div>
+      <button class="btn ghost" data-act="close-info">Cancel</button>
+      <button class="btn" id="infoSave">Save</button>
+      <button class="go small" id="infoGo"><span class="rec"></span><span id="infoGoText">Go live</span></button></div>
   </div>
 </div>
 
@@ -475,12 +528,17 @@ function renderAccount() {
     html += `<div class="account">
         <img class="avatar" src="${esc(a.user.avatar)}" onerror="this.style.visibility='hidden'">
         <div style="flex:1;min-width:0"><b>${esc(a.user.name)}</b><span class="badge"><svg width="13" height="13"><use href="#i-check"/></svg>Connected - your key is fetched automatically</span></div>
-        <button class="btn small ghost" data-act="logout">Log out</button></div>
-      <label class="field"><span>Stream title</span><input class="input" id="title" maxlength="140" placeholder="What are you streaming today?" value="${esc(S.stream_title)}"></label>`;
-    if (pid === "youtube") {
-      html += `<label class="field"><span>Who can watch</span><select class="input" id="privacy">
-        ${["public", "unlisted", "private"].map((v) => `<option value="${v}" ${S.yt_privacy === v ? "selected" : ""}>${v[0].toUpperCase() + v.slice(1)}</option>`).join("")}</select></label>`;
-    }
+        <button class="btn small ghost" data-act="logout">Log out</button></div>`;
+    const info = (S.stream_info || {})[pid] || {};
+    const tags = info.tags || [];
+    html += `<div class="info-sum" data-act="edit-info">
+        <div class="art">${catArt(info.category, 18)}</div>
+        <div class="txt"><b class="${info.title ? "" : "none"}">${esc(info.title || "Add a title, category and tags…")}</b>
+          <small>${esc(infoLine(pid, info))}</small>
+          ${tags.length ? `<div class="tags" style="margin-top:6px">${tags.slice(0, 5).map((t) => `<span class="tag mini">${esc(t)}</span>`).join("")}${tags.length > 5 ? `<span class="tag mini">+${tags.length - 5}</span>` : ""}</div>` : ""}
+        </div>
+        <button class="btn small" data-act="edit-info"><svg width="14" height="14"><use href="#i-edit"/></svg>Edit</button></div>
+      <label class="switch"><input type="checkbox" id="askInfo" ${S.ask_info ? "checked" : ""}><i></i>Check stream info every time I go live</label>`;
   } else {
     const showLogin = pid !== "custom" && a.configured;
     if (showLogin && !manualKey[pid]) {
@@ -505,6 +563,143 @@ function renderAccount() {
     box.innerHTML = html; box.dataset.html = html;
     if (focused && $(focused)) $(focused).focus();
   }
+}
+
+// ---------------------------------------------------------------- stream info
+const LABEL_NAMES = [["ProfanityVulgarity", "Swearing"], ["ViolentGraphic", "Violence / gore"], ["Gambling", "Gambling"],
+  ["DrugsIntoxication", "Drugs / alcohol"], ["SexualThemes", "Sexual themes"], ["DebatedSocialIssuesAndPolitics", "Politics"]];
+let IF = null, INFO_PID = null, INFO_MODE = null, INFO_META = null, catTimer = null, catSeq = 0;
+
+function catArt(cat, size) {
+  if (cat && cat.img) return `<img src="${esc(cat.img)}" alt="" onerror="this.outerHTML='<svg width=16 height=16><use href=#i-tag /></svg>'">`;
+  return `<svg width="${size || 16}" height="${size || 16}"><use href="#i-tag"/></svg>`;
+}
+
+function infoLine(pid, info) {
+  const bits = [info.category ? info.category.name : "No category"];
+  const n = (info.tags || []).length;
+  bits.push(n ? `${n} tag${n > 1 ? "s" : ""}` : "No tags");
+  if (pid === "youtube") bits.push({ public: "Public", unlisted: "Unlisted", private: "Private" }[info.privacy || "public"]);
+  if (pid === "twitch" && (info.labels || []).length) bits.push("Content warnings on");
+  return bits.join(" · ");
+}
+
+async function openInfo(mode) {
+  INFO_MODE = mode; INFO_PID = S.platform; IF = null;
+  const pid = INFO_PID, plat = INFO.platforms.find((p) => p.id === pid);
+  $("infoLogo").innerHTML = `<use href="#i-${pid}"/>`;
+  $("infoLogo").style.color = PCOLOR[pid];
+  $("infoTitle").textContent = mode === "live" ? `Update your live ${plat.name} stream` : `Stream info · ${plat.name}`;
+  $("infoBody").innerHTML = `<div class="hint" style="display:flex;gap:10px;align-items:center;padding:20px 0"><svg class="spin" width="22" height="22" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke="#8b5cf6" stroke-width="3" fill="none" stroke-dasharray="40 20"/></svg>Loading your ${plat.name} info…</div>`;
+  $("infoSave").classList.toggle("hidden", mode !== "edit");
+  $("infoGo").classList.toggle("hidden", mode === "edit");
+  $("infoGo").classList.toggle("upd", mode === "live");
+  $("infoGoText").textContent = mode === "live" ? "Update now" : S.mode === "both" ? "Go live + record" : "Go live";
+  $("infoGo").disabled = true; $("infoSave").disabled = true;
+  $("infoNote").textContent = "";
+  $("infoBg").classList.remove("hidden");
+  let res;
+  try { res = await api().stream_info(pid); } catch (e) { res = null; }
+  if (INFO_PID !== pid || $("infoBg").classList.contains("hidden")) return;
+  INFO_META = res || { info: (S.stream_info || {})[pid] || {}, languages: [], yt_categories: [] };
+  IF = Object.assign({ title: "", tags: [], category: null, labels: [], description: "", privacy: "public" },
+    JSON.parse(JSON.stringify(INFO_META.info || {})));
+  $("infoGo").disabled = false; $("infoSave").disabled = false;
+  $("infoNote").textContent = INFO_META.error ||
+    (mode === "live" ? "Changes show up for viewers in a few seconds." :
+      pid === "youtube" ? "LiteCast makes a new YouTube broadcast each time you go live." : `This is what's on your ${plat.name} channel right now.`);
+  renderInfoForm("fTitle");
+}
+
+function closeInfo() { $("infoBg").classList.add("hidden"); INFO_PID = null; }
+
+function renderInfoForm(focusId) {
+  const pid = INFO_PID, f = IF, live = INFO_MODE === "live";
+  const maxT = pid === "twitch" ? 140 : 100, maxTags = pid === "youtube" ? 30 : 10, full = f.tags.length >= maxTags;
+  let h = `<div class="stack">
+    <label class="field"><span>Title <span class="count" id="cTitle">${f.title.length}/${maxT}</span></span>
+      <input class="input" id="fTitle" maxlength="${maxT}" placeholder="What are you streaming today?" value="${esc(f.title)}"></label>`;
+  if (pid === "youtube") {
+    h += `<label class="field"><span>Description <span class="count" id="cDesc">${(f.description || "").length}/5000</span></span>
+        <textarea class="input" id="fDesc" maxlength="5000" placeholder="What's this stream about? Links, schedule, socials…">${esc(f.description)}</textarea></label>
+      <label class="field"><span>Category</span><select class="input" id="fYtCat">${(INFO_META.yt_categories || []).map((c) =>
+        `<option value="${c.id}" ${f.category && f.category.id === c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></label>`;
+  } else {
+    h += `<div class="field"><span>Category / game</span><div class="cat-wrap"><div class="cat-pick">
+        <div class="art">${catArt(f.category)}</div>
+        <input class="input" id="fCat" autocomplete="off" placeholder="Search for a game or category…" value="${esc(f.category ? f.category.name : "")}">
+        ${f.category ? '<button class="btn small ghost" data-act="clear-cat">Clear</button>' : ""}</div>
+      <div class="cat-results hidden" id="fCatRes"></div></div></div>`;
+  }
+  h += `<div class="field"><span>Tags <span class="count">${f.tags.length}/${maxTags}</span></span>
+      <div class="taginput" id="fTagBox">${f.tags.map((t, i) => `<span class="tag">${esc(t)}<button data-act="rm-tag" data-i="${i}" title="Remove"><svg width="10" height="10"><use href="#i-x"/></svg></button></span>`).join("")}
+        <input id="fTag" ${full ? "disabled" : ""} placeholder="${full ? "That's the max" : pid === "youtube" ? "Type a tag, press Enter" : "Type a tag, press Enter"}"></div>
+      <span class="hint" style="margin-top:2px">${pid === "youtube" ? "Tags help people find your stream in search." : "Letters and numbers only, spaces get squished - like Minecraft, BattleRoyale, English."}</span></div>`;
+  if (pid === "twitch") {
+    h += `<div class="grid2"><label class="field"><span>Stream language</span><select class="input" id="fLang"><option value="">Keep current</option>${(INFO_META.languages || []).map(([c, n]) =>
+        `<option value="${c}" ${f.language === c ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+      <div class="field"><span>Sponsored stream?</span><label class="switch" style="height:38px"><input type="checkbox" id="fBranded" ${f.branded ? "checked" : ""}><i></i>Branded content</label></div></div>
+      <div class="field"><span>Content warnings</span><div class="chipsel">${LABEL_NAMES.map(([id, n]) =>
+        `<button data-act="label" data-id="${id}" class="${(f.labels || []).includes(id) ? "on" : ""}">${n}</button>`).join("")}</div>
+      <span class="hint" style="margin-top:2px">Turn on any that apply so Twitch can warn viewers first.</span></div>`;
+  }
+  if (pid === "youtube" && !live) {
+    h += `<div class="grid2"><label class="field"><span>Who can watch</span><select class="input" id="fPriv">${[["public", "Public"], ["unlisted", "Unlisted (only people with the link)"], ["private", "Private"]].map(([v, n]) =>
+        `<option value="${v}" ${f.privacy === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+      <div class="field"><span>Audience</span><label class="switch" style="height:38px"><input type="checkbox" id="fKids" ${f.kids ? "checked" : ""}><i></i>Made for kids</label></div></div>`;
+  }
+  $("infoBody").innerHTML = h + "</div>";
+  if (focusId && $(focusId)) $(focusId).focus();
+}
+
+function addTag(raw) {
+  const pid = INFO_PID, max = pid === "youtube" ? 30 : 10;
+  let t = String(raw || "").trim();
+  t = pid === "youtube" ? t.replace(/[,<>]/g, " ").trim().slice(0, 60) : t.replace(/[^\p{L}\p{N}]+/gu, "").slice(0, 25);
+  if (!t || IF.tags.length >= max || IF.tags.some((x) => x.toLowerCase() === t.toLowerCase())) return false;
+  IF.tags.push(t);
+  return true;
+}
+
+function flushTag() {
+  const el = $("fTag");
+  if (el && el.value.trim()) { addTag(el.value); el.value = ""; }
+}
+
+function searchCats(q) {
+  clearTimeout(catTimer);
+  const box = $("fCatRes"), pid = INFO_PID, seq = ++catSeq;
+  if (!q.trim()) { box.classList.add("hidden"); return; }
+  catTimer = setTimeout(async () => {
+    let list = [];
+    try { list = await api().search_categories(pid, q); } catch (e) { list = []; }
+    if (seq !== catSeq || !$("fCatRes")) return;
+    box.innerHTML = list.length ? list.map((c, i) => `<button data-act="pick-cat" data-i="${i}"><span class="art">${catArt(c)}</span>${esc(c.name)}</button>`).join("")
+      : `<div class="empty">No matches for "${esc(q)}"</div>`;
+    box.dataset.list = JSON.stringify(list);
+    box.classList.remove("hidden");
+  }, 250);
+}
+
+async function infoPrimary() {
+  if (!IF) return;
+  flushTag();
+  const pid = INFO_PID, mode = INFO_MODE, plat = INFO.platforms.find((p) => p.id === pid);
+  if (mode === "golive") {  // applied to the platform as part of going live
+    const clean = await api().save_stream_info(pid, IF);
+    S.stream_info = Object.assign({}, S.stream_info, { [pid]: clean });
+    closeInfo(); renderAccount(); startNow();
+    return;
+  }
+  const btn = mode === "live" ? $("infoGo") : $("infoSave");
+  btn.disabled = true; $("infoNote").textContent = `Sending to ${plat.name}…`;
+  const res = await api().apply_stream_info(pid, IF);
+  btn.disabled = false;
+  S.stream_info = Object.assign({}, S.stream_info, { [pid]: res.info });
+  renderAccount();
+  if (!res.ok) { $("infoNote").textContent = res.error; return; }
+  closeInfo();
+  toast(res.pushed ? `Updated on ${plat.name}` : "Saved - it's applied when you go live");
 }
 
 // ---------------------------------------------------------------- source
@@ -686,6 +881,8 @@ function renderStatus() {
 
   // stats
   $("stats").classList.toggle("hidden", !live);
+  const accLive = (ST.accounts || {})[S.platform];
+  $("editLive").classList.toggle("hidden", !(live && live.mode !== "record" && S.platform !== "custom" && accLive && accLive.user));
   if (live) {
     $("sTime").textContent = fmtTime(live.elapsed);
     $("sFps").textContent = Math.round(live.fps);
@@ -736,7 +933,7 @@ async function poll() {
 
 // ---------------------------------------------------------------- events
 document.addEventListener("click", async (ev) => {
-  const t = ev.target.closest("button, a");
+  const t = ev.target.closest("button, a, [data-act]");
   if (!t) return;
   if (t.dataset.url) { ev.preventDefault(); api().open_url(t.dataset.url); return; }
   const act = t.dataset.act;
@@ -748,6 +945,12 @@ document.addEventListener("click", async (ev) => {
   else if (act === "cancel-login") api().cancel_login();
   else if (act === "close-login") api().dismiss_login();
   else if (act === "open-dir") api().open_folder();
+  else if (act === "edit-info") openInfo(ST.live ? "live" : "edit");
+  else if (act === "close-info") closeInfo();
+  else if (act === "rm-tag") { IF.tags.splice(+t.dataset.i, 1); renderInfoForm("fTag"); }
+  else if (act === "label") { const l = IF.labels || (IF.labels = []), i = l.indexOf(t.dataset.id); if (i >= 0) l.splice(i, 1); else l.push(t.dataset.id); t.classList.toggle("on", i < 0); }
+  else if (act === "clear-cat") { IF.category = null; renderInfoForm("fCat"); }
+  else if (act === "pick-cat") { IF.category = JSON.parse($("fCatRes").dataset.list)[+t.dataset.i]; renderInfoForm(); }
   else if (t.closest("#mode")) save({ mode: t.dataset.v });
   else if (t.classList.contains("plat")) save({ platform: t.dataset.id });
   else if (t.classList.contains("preset")) {
@@ -767,16 +970,23 @@ document.addEventListener("change", (ev) => {
   else if (id === "bitrate") save({ bitrate: +v || 3500, preset: "Custom" });
   else if (id === "encoder") save({ encoder: v });
   else if (id === "mouse") save({ draw_mouse: ev.target.checked });
-  else if (id === "privacy") save({ yt_privacy: v });
+  else if (id === "askInfo") save({ ask_info: ev.target.checked });
+  else if (IF && id === "fYtCat") IF.category = { id: v, name: ev.target.selectedOptions[0].textContent, img: "" };
+  else if (IF && id === "fLang") IF.language = v;
+  else if (IF && id === "fPriv") IF.privacy = v;
+  else if (IF && id === "fBranded") IF.branded = ev.target.checked;
+  else if (IF && id === "fKids") IF.kids = ev.target.checked;
 });
 
 document.addEventListener("input", (ev) => {
   const id = ev.target.id, v = ev.target.value;
+  if (IF && id === "fTitle") { IF.title = v; $("cTitle").textContent = `${v.length}/${ev.target.maxLength}`; return; }
+  if (IF && id === "fDesc") { IF.description = v; $("cDesc").textContent = `${v.length}/5000`; return; }
+  if (IF && id === "fCat") { searchCats(v); return; }
   clearTimeout(document.inputT);
   document.inputT = setTimeout(() => {
     if (id === "skey") save({ stream_keys: Object.assign({}, S.stream_keys, { [S.platform]: v.trim() }) });
     else if (id === "server") save({ custom_server: v.trim() });
-    else if (id === "title") save({ stream_title: v });
   }, 250);
 });
 
@@ -796,12 +1006,39 @@ $("copyDiag").addEventListener("click", async () => {
   catch (e) { toast("Couldn't copy - open the logs folder instead", true); }
 });
 $("go").addEventListener("click", toggleGo);
-document.addEventListener("keydown", (e) => { if (e.key === "F9") { e.preventDefault(); toggleGo(); } if (e.key === "Escape") $("pickerBg").classList.add("hidden"); });
+$("infoSave").addEventListener("click", infoPrimary);
+$("infoGo").addEventListener("click", infoPrimary);
+$("editLive").addEventListener("click", () => openInfo("live"));
+document.addEventListener("keydown", (e) => {
+  if (!IF) return;
+  if (e.target.id === "fTag") {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      if (addTag(e.target.value)) renderInfoForm("fTag"); else e.target.value = "";
+    } else if (e.key === "Backspace" && !e.target.value && IF.tags.length) {
+      IF.tags.pop(); renderInfoForm("fTag");
+    }
+  } else if (e.target.id === "fCat" && e.key === "Enter") {
+    e.preventDefault();
+    const first = document.querySelector('#fCatRes [data-act="pick-cat"]'); if (first) first.click();
+  } else if (e.target.id === "fTitle" && e.key === "Enter") { e.preventDefault(); infoPrimary(); }
+});
+document.addEventListener("focusout", (e) => {
+  if (IF && e.target.id === "fTag" && e.target.value.trim()) { if (addTag(e.target.value)) setTimeout(() => renderInfoForm(), 0); }
+  if (IF && e.target.id === "fCat") setTimeout(() => { const r = $("fCatRes"); if (r) r.classList.add("hidden"); }, 200);
+});
+document.addEventListener("keydown", (e) => { if (e.key === "F9") { e.preventDefault(); toggleGo(); } if (e.key === "Escape") { $("pickerBg").classList.add("hidden"); if (INFO_PID) closeInfo(); } });
 
 async function toggleGo() {
   if (ST.live) { await api().stop(); return; }
-  if (ST.phase !== "ready") return;
+  if (ST.phase !== "ready" || INFO_PID) return;
   if (S.source === "window" && !S.window_exe) { openPicker(); return toast("Pick the app you want to capture"); }
+  const acc = (ST.accounts || {})[S.platform];
+  if (S.mode !== "record" && S.platform !== "custom" && acc && acc.user && S.ask_info) return openInfo("golive");
+  startNow();
+}
+
+async function startNow() {
   const res = await api().start();
   if (!res.ok) toast(res.error, true);
 }

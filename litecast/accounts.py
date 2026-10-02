@@ -11,6 +11,7 @@ import hashlib
 import http.server
 import json
 import os
+import re
 import secrets
 import threading
 import time
@@ -136,6 +137,58 @@ def _err(js, fallback):
     return fallback
 
 
+LANGUAGES = [("en", "English"), ("es", "Spanish"), ("pt", "Portuguese"), ("fr", "French"), ("de", "German"),
+             ("it", "Italian"), ("ru", "Russian"), ("pl", "Polish"), ("tr", "Turkish"), ("ar", "Arabic"),
+             ("ja", "Japanese"), ("ko", "Korean"), ("zh", "Chinese"), ("nl", "Dutch"), ("sv", "Swedish"),
+             ("other", "Other")]
+
+
+def _boxart(url):
+    return url.replace("{width}x{height}", "52x72") if url else ""
+
+
+def clean_tags(tags, pid):
+    """Twitch/Kick: max 10 one-word tags (letters+numbers, <=25 chars). YouTube: phrases, <=500 chars total."""
+    out, seen, total = [], set(), 0
+    for t in tags or []:
+        t = str(t).strip()
+        if pid in ("twitch", "kick"):
+            t = re.sub(r"[\W_]+", "", t)[:25]
+        else:
+            t = re.sub(r"[,<>]", " ", t).strip()[:60]
+        if not t or t.lower() in seen:
+            continue
+        if pid == "youtube":
+            total += len(t) + 1
+            if total > 500:
+                break
+        seen.add(t.lower())
+        out.append(t)
+    return out[:10] if pid in ("twitch", "kick") else out
+
+
+def clean_info(pid, info):
+    """Keep only the stream-info fields a platform supports, with sane limits."""
+    info = info if isinstance(info, dict) else {}
+    out = {"title": str(info.get("title") or "").strip()[:140 if pid == "twitch" else 100],
+           "tags": clean_tags(info.get("tags"), pid), "category": None}
+    cat = info.get("category")
+    if isinstance(cat, dict) and cat.get("id"):
+        out["category"] = {"id": str(cat["id"]), "name": str(cat.get("name") or ""), "img": str(cat.get("img") or "")}
+    if pid == "twitch":
+        lang = str(info.get("language") or "")
+        out["language"] = lang if lang in dict(LANGUAGES) else ""
+        out["labels"] = [x for x in (info.get("labels") or []) if x in Twitch.LABELS]
+        out["branded"] = bool(info.get("branded"))
+    elif pid == "youtube":
+        out["description"] = str(info.get("description") or "")[:5000]
+        out["privacy"] = info.get("privacy") if info.get("privacy") in ("public", "unlisted", "private") else "public"
+        out["kids"] = bool(info.get("kids"))
+        if not out["category"]:
+            out["category"] = {"id": "20", "name": "Gaming", "img": ""}
+    return out
+
+
 # ---------------------------------------------------------------- platforms
 
 class Twitch:
@@ -191,13 +244,55 @@ class Twitch:
         u = js["data"][0]
         return {"id": u["id"], "name": u.get("display_name") or u.get("login"), "avatar": u.get("profile_image_url", "")}
 
-    def go_live(self, tok, prof, title, privacy):
+    LABELS = ["ProfanityVulgarity", "ViolentGraphic", "Gambling", "DrugsIntoxication", "SexualThemes",
+              "DebatedSocialIssuesAndPolitics"]
+
+    def channel_info(self, tok, prof):
+        st, js = self.http("GET", "https://api.twitch.tv/helix/channels?broadcaster_id=" + prof["id"], headers=self._h(tok))
+        if st != 200 or not js.get("data"):
+            _fail(st, "Couldn't read your Twitch channel: %s" % _err(js, st))
+        ch = js["data"][0]
+        cat = None
+        if ch.get("game_id"):
+            cat = {"id": ch["game_id"], "name": ch.get("game_name", ""), "img": ""}
+            st2, g = self.http("GET", "https://api.twitch.tv/helix/games?id=" + ch["game_id"], headers=self._h(tok))
+            if st2 == 200 and g.get("data"):
+                cat["img"] = _boxart(g["data"][0].get("box_art_url", ""))
+        return {"title": ch.get("title", ""), "category": cat, "tags": ch.get("tags") or [],
+                "language": ch.get("broadcaster_language") or "",
+                "labels": [x for x in (ch.get("content_classification_labels") or []) if x in self.LABELS],
+                "branded": bool(ch.get("is_branded_content"))}
+
+    def search_categories(self, tok, q):
+        st, js = self.http("GET", "https://api.twitch.tv/helix/search/categories?first=10&query=" + urllib.parse.quote(q),
+                           headers=self._h(tok))
+        if st != 200:
+            _fail(st, "Category search failed: %s" % _err(js, st))
+        return [{"id": c["id"], "name": c["name"], "img": _boxart(c.get("box_art_url", ""))} for c in js.get("data") or []]
+
+    def apply_info(self, tok, prof, info):
+        body = {"tags": info.get("tags") or [], "is_branded_content": bool(info.get("branded")),
+                "content_classification_labels": [{"id": x, "is_enabled": x in (info.get("labels") or [])}
+                                                  for x in self.LABELS]}
+        if info.get("title"):
+            body["title"] = info["title"]
+        if info.get("category"):
+            body["game_id"] = info["category"]["id"]
+        if info.get("language"):
+            body["broadcaster_language"] = info["language"]
+        st, js = self.http("PATCH", "https://api.twitch.tv/helix/channels?broadcaster_id=" + prof["id"],
+                           body=body, headers=self._h(tok))
+        if st not in (200, 204):
+            _fail(st, "Twitch didn't accept the stream info: %s" % _err(js, st))
+
+    def go_live(self, tok, prof, info):
         warn = ""
-        if title:
-            st, js = self.http("PATCH", "https://api.twitch.tv/helix/channels?broadcaster_id=" + prof["id"],
-                               body={"title": title[:140]}, headers=self._h(tok))
-            if st not in (200, 204):
-                warn = "Couldn't set the title (%s)." % _err(js, st)
+        try:
+            self.apply_info(tok, prof, info)
+        except Unauthorized:
+            raise
+        except AuthError as e:
+            warn = str(e)
         st, js = self.http("GET", "https://api.twitch.tv/helix/streams/key?broadcaster_id=" + prof["id"], headers=self._h(tok))
         if st != 200 or not js.get("data"):
             _fail(st, "Couldn't get your Twitch stream key: %s" % _err(js, st))
@@ -210,8 +305,15 @@ class YouTube:
     API = "https://www.googleapis.com/youtube/v3/"
     STREAM_NAME = "LiteCast"
 
+    CATEGORIES = [("20", "Gaming"), ("24", "Entertainment"), ("22", "People & Blogs"), ("23", "Comedy"),
+                  ("10", "Music"), ("17", "Sports"), ("27", "Education"), ("28", "Science & Technology"),
+                  ("26", "Howto & Style"), ("1", "Film & Animation"), ("2", "Autos & Vehicles"),
+                  ("15", "Pets & Animals"), ("19", "Travel & Events"), ("25", "News & Politics"),
+                  ("29", "Nonprofits & Activism")]
+
     def __init__(self, creds, http):
         self.cid, self.secret, self.http = creds.get("YOUTUBE_CLIENT_ID"), creds.get("YOUTUBE_CLIENT_SECRET"), http
+        self.live_video = None
 
     def configured(self):
         return bool(self.cid and self.secret)
@@ -270,7 +372,22 @@ class YouTube:
         return {"id": ch["id"], "name": ch["snippet"]["title"],
                 "avatar": (thumbs.get("default") or thumbs.get("medium") or {}).get("url", "")}
 
-    def go_live(self, tok, prof, title, privacy):
+    def channel_info(self, tok, prof):
+        return None  # YouTube makes a fresh broadcast each time; we keep your last info locally
+
+    def search_categories(self, tok, q):
+        return [{"id": i, "name": n, "img": ""} for i, n in self.CATEGORIES if q.lower() in n.lower()]
+
+    def _snippet(self, info):
+        return {"title": info.get("title") or "Live with LiteCast", "description": info.get("description") or "",
+                "tags": info.get("tags") or [], "categoryId": (info.get("category") or {}).get("id") or "20"}
+
+    def apply_info(self, tok, prof, info):
+        if not self.live_video:
+            raise AuthError("You're not live on YouTube right now.")
+        self._call("PUT", "videos?part=snippet", tok, body={"id": self.live_video, "snippet": self._snippet(info)})
+
+    def go_live(self, tok, prof, info):
         streams = self._call("GET", "liveStreams?part=id,snippet,cdn&mine=true&maxResults=50", tok).get("items", [])
         stream = next((x for x in streams if x.get("snippet", {}).get("title") == self.STREAM_NAME
                        and x.get("cdn", {}).get("ingestionType") == "rtmp"), None)
@@ -280,14 +397,23 @@ class YouTube:
                 "cdn": {"frameRate": "variable", "ingestionType": "rtmp", "resolution": "variable"},
                 "contentDetails": {"isReusable": True}})
         now = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        snip = self._snippet(info)
         bc = self._call("POST", "liveBroadcasts?part=id,snippet,status,contentDetails", tok, body={
-            "snippet": {"title": (title or "Live with LiteCast")[:100], "scheduledStartTime": now},
-            "status": {"privacyStatus": privacy if privacy in ("public", "unlisted", "private") else "public",
-                       "selfDeclaredMadeForKids": False},
+            "snippet": {"title": snip["title"], "description": snip["description"], "scheduledStartTime": now},
+            "status": {"privacyStatus": info.get("privacy") or "public",
+                       "selfDeclaredMadeForKids": bool(info.get("kids"))},
             "contentDetails": {"enableAutoStart": True, "enableAutoStop": True, "latencyPreference": "low"}})
         self._call("POST", "liveBroadcasts/bind?id=%s&part=id,contentDetails&streamId=%s" % (bc["id"], stream["id"]), tok)
-        info = stream["cdn"]["ingestionInfo"]
-        return info["ingestionAddress"], info["streamName"], ""
+        self.live_video = bc["id"]
+        warn = ""
+        try:  # tags + category live on the video, not the broadcast
+            self._call("PUT", "videos?part=snippet", tok, body={"id": bc["id"], "snippet": snip})
+        except Unauthorized:
+            raise
+        except AuthError as e:
+            warn = "Couldn't set tags/category: %s" % e
+        info_ = stream["cdn"]["ingestionInfo"]
+        return info_["ingestionAddress"], info_["streamName"], warn
 
 
 class Kick:
@@ -337,13 +463,47 @@ class Kick:
         u = js["data"][0]
         return {"id": str(u.get("user_id", "")), "name": u.get("name", "Kick user"), "avatar": u.get("profile_picture", "")}
 
-    def go_live(self, tok, prof, title, privacy):
-        warn = ""
-        if title:
-            st, js = self.http("PATCH", "https://api.kick.com/public/v1/channels", body={"stream_title": title[:100]},
+    def channel_info(self, tok, prof):
+        st, js = self.http("GET", "https://api.kick.com/public/v1/channels", headers=self._h(tok))
+        if st != 200 or not js.get("data"):
+            _fail(st, "Couldn't read your Kick channel: %s" % _err(js, st))
+        ch = js["data"][0]
+        cat = ch.get("category") or {}
+        return {"title": ch.get("stream_title") or "",
+                "category": {"id": str(cat["id"]), "name": cat.get("name", ""), "img": cat.get("thumbnail", "")}
+                if cat.get("id") else None,
+                "tags": (ch.get("stream") or {}).get("custom_tags") or []}
+
+    def search_categories(self, tok, q):
+        q = q.strip()
+        if len(q) >= 3:
+            st, js = self.http("GET", "https://api.kick.com/public/v2/categories?limit=10&name=" + urllib.parse.quote(q),
                                headers=self._h(tok))
-            if st not in (200, 204):
-                warn = "Couldn't set the title (%s)." % _err(js, st)
+            if st == 200 and js.get("data"):
+                return [{"id": str(c["id"]), "name": c["name"], "img": c.get("thumbnail", "")} for c in js["data"]]
+        st, js = self.http("GET", "https://api.kick.com/public/v1/categories?q=" + urllib.parse.quote(q), headers=self._h(tok))
+        if st != 200:
+            _fail(st, "Category search failed: %s" % _err(js, st))
+        return [{"id": str(c["id"]), "name": c["name"], "img": c.get("thumbnail", "")} for c in (js.get("data") or [])[:10]]
+
+    def apply_info(self, tok, prof, info):
+        body = {"custom_tags": info.get("tags") or []}
+        if info.get("title"):
+            body["stream_title"] = info["title"]
+        if info.get("category"):
+            body["category_id"] = int(info["category"]["id"])
+        st, js = self.http("PATCH", "https://api.kick.com/public/v1/channels", body=body, headers=self._h(tok))
+        if st not in (200, 204):
+            _fail(st, "Kick didn't accept the stream info: %s" % _err(js, st))
+
+    def go_live(self, tok, prof, info):
+        warn = ""
+        try:
+            self.apply_info(tok, prof, info)
+        except Unauthorized:
+            raise
+        except AuthError as e:
+            warn = str(e)
         st, js = self.http("GET", "https://api.kick.com/public/v1/channels", headers=self._h(tok))
         if st == 401:
             _fail(st, "Kick login expired.")
@@ -424,12 +584,28 @@ class Accounts:
                 self._save()
         return tok
 
-    def go_live(self, pid, title="", privacy="public"):
-        """Returns (server_url, stream_key, warning)."""
-        p = self.platforms[pid]
+    def _with_token(self, pid, fn):
+        """Call fn(token, profile); on a rejected token refresh once and retry."""
         prof = self.data.get(pid, {}).get("profile") or {}
         try:
-            return p.go_live(self._token(pid), prof, title, privacy)
+            return fn(self._token(pid), prof)
         except Unauthorized:
-            # One retry with a fresh token in case it was revoked/expired early.
-            return p.go_live(self._token(pid, force=True), prof, title, privacy)
+            return fn(self._token(pid, force=True), prof)
+
+    def channel_info(self, pid):
+        """What's currently set on the platform (None when the platform has no such thing)."""
+        p = self.platforms[pid]
+        return self._with_token(pid, p.channel_info)
+
+    def search_categories(self, pid, q):
+        p = self.platforms[pid]
+        return self._with_token(pid, lambda tok, prof: p.search_categories(tok, q))
+
+    def update_info(self, pid, info):
+        p = self.platforms[pid]
+        return self._with_token(pid, lambda tok, prof: p.apply_info(tok, prof, clean_info(pid, info)))
+
+    def go_live(self, pid, info=None):
+        """Apply the stream info and return (server_url, stream_key, warning)."""
+        p = self.platforms[pid]
+        return self._with_token(pid, lambda tok, prof: p.go_live(tok, prof, clean_info(pid, info)))

@@ -76,6 +76,22 @@ class ApiFlowTests(unittest.TestCase):
         self.assertFalse(res["ok"])
         self.assertIn("stream key", res["error"])
 
+    def test_stream_info_save_and_push(self):
+        pushed = []
+        self.api._accounts.data = {"twitch": {"profile": {"id": "1", "name": "P"}}}
+        self.api._accounts.update_info = lambda pid, info: pushed.append((pid, info))
+        self.api._accounts.channel_info = lambda pid: {"title": "On Twitch", "tags": ["Remote"], "category": None}
+        res = self.api.apply_stream_info("twitch", {"title": "New", "tags": ["a b", "c"], "labels": ["Gambling"]})
+        self.assertTrue(res["ok"] and res["pushed"])
+        self.assertEqual(pushed[0][1]["tags"], ["ab", "c"])
+        self.assertEqual(self.api.settings()["stream_info"]["twitch"]["title"], "New")
+        self.assertEqual(self.api.stream_info("twitch")["info"]["title"], "On Twitch")  # platform wins on reload
+        # YouTube is only pushed while live
+        self.api._accounts.data["youtube"] = {"profile": {"id": "y"}}
+        res = self.api.apply_stream_info("youtube", {"title": "Later", "privacy": "unlisted"})
+        self.assertEqual((res["ok"], res["pushed"], res["info"]["privacy"]), (True, False, "unlisted"))
+        self.assertEqual(len(pushed), 1)
+
     def test_save_validates(self):
         s = self.api.save({"fps": 500, "bitrate": 1, "height": 123, "mode": "nope", "tuned": {"x": 1}, "bogus": 2})
         self.assertEqual((s["fps"], s["bitrate"], s["height"], s["mode"]), (60, 300, 720, "record"))
