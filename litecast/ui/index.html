@@ -275,6 +275,17 @@ textarea.input { height: auto; min-height: 100px; padding: 10px 12px; resize: ve
 .go.small { height: 42px; min-width: 0; padding: 0 22px; font-size: 14px; border-radius: 12px; }
 .go.upd .rec { display: none; }
 
+.steps { counter-reset: step; display: flex; flex-direction: column; gap: 14px; margin: 0; padding: 0; list-style: none; }
+.steps li { position: relative; padding-left: 38px; line-height: 1.5; }
+.steps li::before { counter-increment: step; content: counter(step); position: absolute; left: 0; top: -1px; width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center; font-weight: 800; font-size: 13px; background: var(--grad); color: #fff; }
+.steps .btn { margin-top: 8px; }
+.copyrow { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.copyrow span { width: 150px; color: var(--muted); font-size: 12.5px; font-weight: 600; flex: none; }
+.copyrow code { flex: 1; min-width: 0; padding: 6px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line-2); font-family: var(--mono); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
+.keymode { display: flex; gap: 14px; align-items: flex-start; padding: 14px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); }
+.keymode .ic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; background: rgba(251, 191, 36, .14); color: var(--warn); flex: none; }
+
 @media (max-width: 900px) { .main { grid-template-columns: 1fr; } }
 ::-webkit-scrollbar { width: 10px; } ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 10px; border: 3px solid var(--bg); }
 </style>
@@ -443,6 +454,18 @@ textarea.input { height: auto; min-height: 100px; padding: 10px 12px; resize: ve
   </div>
 </div>
 
+<!-- login setup -->
+<div class="modal-bg hidden" id="setupBg">
+  <div class="modal" style="width:min(640px,92vw)">
+    <div class="modal-h"><svg width="22" height="22" id="setupLogo"><use href="#i-twitch"/></svg><h3 id="setupTitle">Turn on Log in</h3><div class="spacer"></div>
+      <button class="btn small ghost" data-act="close-setup"><svg width="14" height="14"><use href="#i-x"/></svg></button></div>
+    <div class="modal-b" id="setupBody"></div>
+    <div class="modal-f"><span class="hint" id="setupNote"></span><div class="spacer"></div>
+      <button class="btn ghost" data-act="close-setup">Cancel</button>
+      <button class="go small upd" id="setupSave">Save &amp; log in</button></div>
+  </div>
+</div>
+
 <!-- stream info -->
 <div class="modal-bg hidden" id="infoBg">
   <div class="modal" style="width:min(660px,92vw)">
@@ -463,6 +486,11 @@ textarea.input { height: auto; min-height: 100px; padding: 10px 12px; resize: ve
 const $ = (id) => document.getElementById(id);
 const api = () => window.pywebview.api;
 let INFO = null, S = {}, ST = {}, SOURCES = null, pickTab = "window", lastPhase = "", lastLogin = null;
+const INFO_URLS = {
+  twitch: "https://dashboard.twitch.tv/stream-manager",
+  youtube: "https://studio.youtube.com/channel/UC/livestreaming",
+  kick: "https://kick.com/dashboard/stream",
+};
 const iconCache = {}, PLAT_URLS = {
   twitch: "https://dashboard.twitch.tv/settings/stream",
   youtube: "https://studio.youtube.com/channel/UC/livestreaming",
@@ -517,7 +545,7 @@ function renderPlatforms() {
   renderAccount();
 }
 
-let keyShown = false, manualKey = {};
+let keyShown = false;
 function renderAccount() {
   const pid = S.platform, plat = INFO.platforms.find((p) => p.id === pid);
   const a = (ST.accounts || {})[pid] || {};
@@ -540,29 +568,79 @@ function renderAccount() {
         <button class="btn small" data-act="edit-info"><svg width="14" height="14"><use href="#i-edit"/></svg>Edit</button></div>
       <label class="switch"><input type="checkbox" id="askInfo" ${S.ask_info ? "checked" : ""}><i></i>Check stream info every time I go live</label>`;
   } else {
-    const showLogin = pid !== "custom" && a.configured;
-    if (showLogin && !manualKey[pid]) {
+    if (pid !== "custom") {
       html += `<button class="loginbtn ${pid}" style="--pc:${PCOLOR[pid]}" data-act="login">
           <svg width="22" height="22"><use href="#i-${pid}"/></svg>Log in with ${plat.name}</button>
-        <div class="or">or</div><a class="hint" style="text-align:center" data-act="manual">Paste a stream key instead</a>`;
-    } else {
-      if (pid === "kick" || pid === "custom") {
-        html += `<label class="field"><span>Server URL</span><input class="input" id="server" placeholder="rtmps://..." value="${esc(S.custom_server)}"></label>`;
-      }
-      html += `<label class="field"><span>Stream key</span><div class="input-wrap">
-          <input class="input" id="skey" type="${keyShown ? "text" : "password"}" placeholder="Paste it here" value="${esc((S.stream_keys || {})[pid] || "")}">
-          <button class="btn small ghost" data-act="showkey">${keyShown ? "Hide" : "Show"}</button></div></label>`;
-      const links = [];
-      if (PLAT_URLS[pid]) links.push(`<a data-url="${PLAT_URLS[pid]}">Where do I find my key?</a>`);
-      if (showLogin) links.push(`<a data-act="unmanual">Log in instead</a>`);
-      else if (pid !== "custom") links.push(`<span>Log in with ${plat.name} isn't set up in this build yet.</span>`);
-      html += `<div class="hint" style="display:flex;gap:14px;flex-wrap:wrap">${links.join("")}</div>`;
+        <div class="hint" style="text-align:center;margin-top:-4px">${a.configured ? `Lets LiteCast set your title, category and tags. <a data-act="redo-setup" data-pid="${pid}">Change setup</a>`
+          : `One-time setup, about ${SETUP[pid].minutes} minutes - then title, category &amp; tags work.`}</div>
+        <div class="or">or paste a stream key</div>`;
     }
+    if (pid === "kick" || pid === "custom") {
+      html += `<label class="field"><span>Server URL</span><input class="input" id="server" placeholder="rtmps://..." value="${esc(S.custom_server)}"></label>`;
+    }
+    html += `<label class="field"><span>Stream key</span><div class="input-wrap">
+        <input class="input" id="skey" type="${keyShown ? "text" : "password"}" placeholder="Paste it here" value="${esc((S.stream_keys || {})[pid] || "")}">
+        <button class="btn small ghost" data-act="showkey">${keyShown ? "Hide" : "Show"}</button></div></label>`;
+    if (PLAT_URLS[pid]) html += `<div class="hint"><a data-url="${PLAT_URLS[pid]}">Where do I find my key?</a></div>`;
+    if (pid !== "custom") html += `<label class="switch"><input type="checkbox" id="askInfo" ${S.ask_info ? "checked" : ""}><i></i>Show stream info before I go live</label>`;
   }
   if (box.dataset.html !== html) {
     box.innerHTML = html; box.dataset.html = html;
     if (focused && $(focused)) $(focused).focus();
   }
+}
+
+// ---------------------------------------------------------------- login setup (one-time app registration)
+const APPNAME = "LiteCast " + Math.floor(1000 + Math.random() * 9000);
+const copyRow = (label, value) => `<div class="copyrow"><span>${label}</span><code>${esc(value)}</code><button class="btn small" data-copy="${esc(value)}">Copy</button></div>`;
+const SETUP = {
+  twitch: { minutes: 2, fields: [["TWITCH_CLIENT_ID", "Client ID", "e.g. 0123abcd…"]], steps: () => [
+    `Open the Twitch developer console and log in with your Twitch account.<br><button class="btn small" data-url="https://dev.twitch.tv/console/apps/create">Open Twitch developer console</button>
+     <div class="hint">If it asks, turn on two-factor authentication first (Twitch requires it for this).</div>`,
+    `Fill in the form, then click <b>Create</b>:
+     ${copyRow("Name", APPNAME)}${copyRow("OAuth Redirect URLs", "http://localhost")}
+     <div class="copyrow"><span>Category</span><b>Broadcaster Suite</b></div><div class="copyrow"><span>Client Type</span><b>Public</b></div>`,
+    `Click <b>Manage</b> next to your new app, copy the <b>Client ID</b> and paste it below.`] },
+  youtube: { minutes: 5, fields: [["YOUTUBE_CLIENT_ID", "Client ID", "…apps.googleusercontent.com"], ["YOUTUBE_CLIENT_SECRET", "Client secret", "GOCSPX-…"]], steps: () => [
+    `Create a Google Cloud project named <b>LiteCast</b> (free, no card needed).<br><button class="btn small" data-url="https://console.cloud.google.com/projectcreate">Create project</button>`,
+    `Turn on the YouTube API for it (check the new project is selected at the top), then click <b>Enable</b>.<br><button class="btn small" data-url="https://console.cloud.google.com/apis/library/youtube.googleapis.com">Open YouTube Data API</button>`,
+    `Set up the login screen: click <b>Get started</b>, app name <b>LiteCast</b>, your email, audience <b>External</b>, then <b>Create</b>.<br><button class="btn small" data-url="https://console.cloud.google.com/auth/overview">Open Google Auth setup</button>`,
+    `Add yourself as a tester: <b>Audience → Test users → Add users</b> → your Gmail.<br><button class="btn small" data-url="https://console.cloud.google.com/auth/audience">Open Audience</button>`,
+    `Make the login key: Application type <b>Desktop app</b> → <b>Create</b>, then copy the <b>Client ID</b> and <b>Client secret</b> below.<br><button class="btn small" data-url="https://console.cloud.google.com/auth/clients/create">Create client</button>
+     <div class="hint">Google will say the app "isn't verified" when you log in - it's your own app, click <b>Continue</b>.</div>`] },
+  kick: { minutes: 2, fields: [["KICK_CLIENT_ID", "Client ID", ""], ["KICK_CLIENT_SECRET", "Client secret", ""]], steps: () => [
+    `Open Kick's developer settings and click <b>Create new app</b>.<br><button class="btn small" data-url="https://kick.com/settings/developer">Open Kick developer settings</button>`,
+    `Fill it in and tick the permissions for <b>user info</b>, <b>channel info (read + write)</b> and <b>stream key</b>:
+     ${copyRow("App name", APPNAME)}${copyRow("Redirect URL", "http://localhost:17563/callback")}`,
+    `Copy the <b>Client ID</b> and <b>Client Secret</b> and paste them below.`] },
+};
+let SETUP_PID = null;
+
+function openSetup(pid) {
+  SETUP_PID = pid;
+  const plat = INFO.platforms.find((p) => p.id === pid), cfg = SETUP[pid];
+  $("setupLogo").innerHTML = `<use href="#i-${pid}"/>`;
+  $("setupLogo").style.color = PCOLOR[pid];
+  $("setupTitle").textContent = `Turn on Log in with ${plat.name}`;
+  $("setupBody").innerHTML = `<p class="hint" style="margin:0 0 14px">${plat.name} only lets registered apps log you in, so you make your own free "app" once (~${cfg.minutes} min). After that you just click Log in.</p>
+    <ol class="steps">${cfg.steps().map((s) => `<li>${s}</li>`).join("")}</ol>
+    <div class="stack" style="margin-top:16px">${cfg.fields.map(([k, label, ph]) =>
+      `<label class="field"><span>${label}</span><input class="input" id="setup_${k}" placeholder="${esc(ph)}" autocomplete="off" spellcheck="false"></label>`).join("")}</div>`;
+  $("setupNote").textContent = "";
+  $("setupBg").classList.remove("hidden");
+}
+
+async function saveSetup() {
+  const pid = SETUP_PID, vals = {};
+  SETUP[pid].fields.forEach(([k]) => { vals[k] = $("setup_" + k).value.trim(); });
+  $("setupSave").disabled = true;
+  const res = await api().login_setup(pid, vals);
+  $("setupSave").disabled = false;
+  if (!res.ok) { $("setupNote").textContent = res.error; return; }
+  $("setupBg").classList.add("hidden");
+  SETUP_PID = null;
+  ST = await api().status(); renderPlatforms();
+  api().login(pid);
 }
 
 // ---------------------------------------------------------------- stream info
@@ -582,6 +660,28 @@ function infoLine(pid, info) {
   if (pid === "youtube") bits.push({ public: "Public", unlisted: "Unlisted", private: "Private" }[info.privacy || "public"]);
   if (pid === "twitch" && (info.labels || []).length) bits.push("Content warnings on");
   return bits.join(" · ");
+}
+
+function openKeyInfo() {
+  INFO_MODE = "keymode"; INFO_PID = S.platform; IF = null;
+  const pid = INFO_PID, plat = INFO.platforms.find((p) => p.id === pid);
+  const a = (ST.accounts || {})[pid] || {};
+  $("infoLogo").innerHTML = `<use href="#i-${pid}"/>`;
+  $("infoLogo").style.color = PCOLOR[pid];
+  $("infoTitle").textContent = `Stream info · ${plat.name}`;
+  $("infoBody").innerHTML = `<div class="keymode"><div class="ic"><svg width="20" height="20"><use href="#i-tag"/></svg></div>
+      <div><b>You're using a pasted stream key</b><p class="hint" style="margin:4px 0 0">A pasted key only lets LiteCast send video. To change your title, category and tags from here,
+      log in with ${plat.name}${a.configured ? "" : ` (one-time ~${SETUP[pid].minutes} min setup)`}. Or change them on ${plat.name}'s site before you go live.</p>
+      <div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap">
+        <button class="btn" data-act="keymode-login" style="flex:none"><svg width="16" height="16" style="color:${PCOLOR[pid]}"><use href="#i-${pid}"/></svg>${a.configured ? "Log in" : "Set up Log in"} with ${plat.name}</button>
+        <button class="btn ghost" data-url="${INFO_URLS[pid]}" style="flex:none">Edit on ${plat.name}</button></div></div></div>
+    <label class="switch" style="margin-top:14px"><input type="checkbox" id="askInfo" ${S.ask_info ? "checked" : ""}><i></i>Show this before I go live</label>`;
+  $("infoSave").classList.add("hidden");
+  $("infoGo").classList.remove("hidden", "upd");
+  $("infoGo").disabled = false;
+  $("infoGoText").textContent = S.mode === "both" ? "Go live + record" : "Go live";
+  $("infoNote").textContent = "";
+  $("infoBg").classList.remove("hidden");
 }
 
 async function openInfo(mode) {
@@ -682,6 +782,7 @@ function searchCats(q) {
 }
 
 async function infoPrimary() {
+  if (INFO_MODE === "keymode") { closeInfo(); startNow(); return; }
   if (!IF) return;
   flushTag();
   const pid = INFO_PID, mode = INFO_MODE, plat = INFO.platforms.find((p) => p.id === pid);
@@ -827,7 +928,9 @@ function renderLogin() {
       <p style="margin:0">Finish logging in in your browser. This window updates by itself.</p></div>
       <div class="row" style="margin-top:16px"><button class="btn" data-url="${esc(L.url)}">Open browser again</button><button class="btn ghost" data-act="cancel-login">Cancel</button></div>`;
   } else if (L.stage === "error") {
-    h = `<p class="msg"><span class="err">${esc(L.error)}</span></p><div class="row"><button class="btn" data-act="close-login">OK</button></div>`;
+    h = `<p class="msg"><span class="err">${esc(L.error)}</span></p><div class="row">
+      <button class="btn" data-act="close-login">OK</button>
+      ${SETUP[L.platform] ? `<button class="btn ghost" data-act="redo-setup" data-pid="${L.platform}">Redo login setup</button>` : ""}</div>`;
   } else {
     h = `<p class="hint">Connecting…</p>`;
   }
@@ -937,10 +1040,16 @@ document.addEventListener("click", async (ev) => {
   if (!t) return;
   if (t.dataset.url) { ev.preventDefault(); api().open_url(t.dataset.url); return; }
   const act = t.dataset.act;
-  if (act === "login") api().login(S.platform);
+  if (t.dataset.copy) {
+    try { await navigator.clipboard.writeText(t.dataset.copy); t.textContent = "Copied"; setTimeout(() => { t.textContent = "Copy"; }, 1500); }
+    catch (e) { toast("Couldn't copy - select the text and press Ctrl+C", true); }
+    return;
+  }
+  if (act === "login") { if (((ST.accounts || {})[S.platform] || {}).configured) api().login(S.platform); else openSetup(S.platform); }
+  else if (act === "keymode-login") { closeInfo(); if (((ST.accounts || {})[S.platform] || {}).configured) api().login(S.platform); else openSetup(S.platform); }
+  else if (act === "close-setup") { $("setupBg").classList.add("hidden"); SETUP_PID = null; }
+  else if (act === "redo-setup") { api().dismiss_login(); $("loginBg").classList.add("hidden"); openSetup(t.dataset.pid || S.platform); }
   else if (act === "logout") { await api().logout(S.platform); toast("Logged out"); }
-  else if (act === "manual") { manualKey[S.platform] = true; renderAccount(); }
-  else if (act === "unmanual") { manualKey[S.platform] = false; renderAccount(); }
   else if (act === "showkey") { keyShown = !keyShown; renderAccount(); }
   else if (act === "cancel-login") api().cancel_login();
   else if (act === "close-login") api().dismiss_login();
@@ -1007,6 +1116,7 @@ $("copyDiag").addEventListener("click", async () => {
 });
 $("go").addEventListener("click", toggleGo);
 $("infoSave").addEventListener("click", infoPrimary);
+$("setupSave").addEventListener("click", saveSetup);
 $("infoGo").addEventListener("click", infoPrimary);
 $("editLive").addEventListener("click", () => openInfo("live"));
 document.addEventListener("keydown", (e) => {
@@ -1027,14 +1137,14 @@ document.addEventListener("focusout", (e) => {
   if (IF && e.target.id === "fTag" && e.target.value.trim()) { if (addTag(e.target.value)) setTimeout(() => renderInfoForm(), 0); }
   if (IF && e.target.id === "fCat") setTimeout(() => { const r = $("fCatRes"); if (r) r.classList.add("hidden"); }, 200);
 });
-document.addEventListener("keydown", (e) => { if (e.key === "F9") { e.preventDefault(); toggleGo(); } if (e.key === "Escape") { $("pickerBg").classList.add("hidden"); if (INFO_PID) closeInfo(); } });
+document.addEventListener("keydown", (e) => { if (e.key === "F9") { e.preventDefault(); toggleGo(); } if (e.key === "Escape") { $("pickerBg").classList.add("hidden"); $("setupBg").classList.add("hidden"); SETUP_PID = null; if (INFO_PID) closeInfo(); } });
 
 async function toggleGo() {
   if (ST.live) { await api().stop(); return; }
   if (ST.phase !== "ready" || INFO_PID) return;
   if (S.source === "window" && !S.window_exe) { openPicker(); return toast("Pick the app you want to capture"); }
   const acc = (ST.accounts || {})[S.platform];
-  if (S.mode !== "record" && S.platform !== "custom" && acc && acc.user && S.ask_info) return openInfo("golive");
+  if (S.mode !== "record" && S.platform !== "custom" && S.ask_info) return acc && acc.user ? openInfo("golive") : openKeyInfo();
   startNow();
 }
 

@@ -21,6 +21,29 @@ KICK_REDIRECT_PORT = 17563  # register http://localhost:17563/callback on kick.c
 _KEYS = ("TWITCH_CLIENT_ID", "YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "KICK_CLIENT_ID", "KICK_CLIENT_SECRET")
 
 
+SETUP_KEYS = {
+    "twitch": ("TWITCH_CLIENT_ID",),
+    "youtube": ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"),
+    "kick": ("KICK_CLIENT_ID", "KICK_CLIENT_SECRET"),
+}
+
+
+def save(data_dir, values):
+    """Store app IDs entered in the app's login setup (oauth.json in the data dir)."""
+    path = os.path.join(data_dir, "oauth.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            current = json.load(f)
+    except (OSError, ValueError):
+        current = {}
+    if not isinstance(current, dict):
+        current = {}
+    current.update({k: v for k, v in values.items() if k in _KEYS})
+    os.makedirs(data_dir, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(current, f, indent=2)
+
+
 def load(data_dir=None):
     """Constants, overridden by oauth.json in the data dir, overridden by LITECAST_* env vars."""
     creds = {k: globals()[k] for k in _KEYS}

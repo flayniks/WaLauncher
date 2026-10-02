@@ -1,6 +1,10 @@
 # Turning on "Log in with Twitch / YouTube / Kick"
 
-Streaming sites only let registered apps log people in, so you register LiteCast once per site. It's free. Then add what you get as **GitHub secrets** (repo → Settings → Secrets and variables → Actions → *New repository secret*), and the next build has working login buttons.
+Streaming sites only let registered apps log people in, so you register LiteCast once per site. It's free.
+
+**Easiest:** just click **Log in with Twitch** (or YouTube/Kick) in LiteCast. It walks you through these exact steps with copy buttons, and you paste the ID straight into the app. Done.
+
+**Building the .exe for other people?** Add what you get below as **GitHub secrets** (repo → Settings → Secrets and variables → Actions → *New repository secret*) and every build has login ready to go.
 
 You only need to do the sites you use.
 

@@ -5,6 +5,7 @@ returns plain JSON data. The UI polls `status()` a couple of times a second.
 """
 
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -288,6 +289,25 @@ class Api:
 
         self._bg(run)
         return True
+
+    def login_setup(self, pid, values):
+        """Save app IDs the user created on the platform's developer site, so 'Log in with…' works."""
+        keys = credentials.SETUP_KEYS.get(pid)
+        if not keys:
+            return {"ok": False, "error": "Unknown platform."}
+        vals = {k: str((values or {}).get(k) or "").strip() for k in keys}
+        if not all(vals.values()):
+            return {"ok": False, "error": "Fill in every box."}
+        if pid == "twitch" and not re.fullmatch(r"[a-z0-9]{20,40}", vals["TWITCH_CLIENT_ID"]):
+            return {"ok": False, "error": "That doesn't look like a Twitch Client ID (about 30 letters and numbers)."}
+        if pid == "youtube" and not vals["YOUTUBE_CLIENT_ID"].endswith(".apps.googleusercontent.com"):
+            return {"ok": False, "error": "That doesn't look like a Google Client ID - it ends in .apps.googleusercontent.com."}
+        try:
+            credentials.save(E.data_dir(), vals)
+        except OSError as e:
+            return {"ok": False, "error": "Couldn't save: %s" % e}
+        self._accounts.reload(credentials.load(E.data_dir()))
+        return {"ok": True}
 
     def cancel_login(self):
         self._accounts.cancel()

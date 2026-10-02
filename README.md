@@ -45,7 +45,7 @@ Windows needs a recording device that "hears" your PC: Sound settings → More s
 
 ## "Log in with…" buttons
 
-Each site requires the app to be registered once (free, about 5 minutes). Until then LiteCast shows a stream key box instead. See [LOGIN_SETUP.md](LOGIN_SETUP.md).
+Each site requires the app to be registered once (free, 2-5 minutes). Click **Log in with…** in LiteCast and it walks you through it step by step. Until then you can paste a stream key. Details: [LOGIN_SETUP.md](LOGIN_SETUP.md).
 
 ## Files
 

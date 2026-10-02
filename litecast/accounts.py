@@ -524,8 +524,9 @@ PLATFORM_CLASSES = (Twitch, YouTube, Kick)
 
 class Accounts:
     def __init__(self, path, creds, http=http_json, open_url=webbrowser.open):
-        self.path, self.open_url = path, open_url
-        self.platforms = {cls.id: cls(creds, http) for cls in PLATFORM_CLASSES}
+        self.path, self.open_url, self.http = path, open_url, http
+        self.classes = PLATFORM_CLASSES
+        self.platforms = {cls.id: cls(creds, http) for cls in self.classes}
         self.cancel_event = threading.Event()
         self._lock = threading.Lock()
         try:
@@ -540,6 +541,10 @@ class Accounts:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(self.data, f)
         os.replace(tmp, self.path)
+
+    def reload(self, creds):
+        """New app IDs were entered (login setup) - rebuild the platform clients."""
+        self.platforms = {cls.id: cls(creds, self.http) for cls in self.classes}
 
     def summary(self):
         return {pid: {"name": p.name, "configured": p.configured(),

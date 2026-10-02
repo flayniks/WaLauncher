@@ -92,6 +92,19 @@ class ApiFlowTests(unittest.TestCase):
         self.assertEqual((res["ok"], res["pushed"], res["info"]["privacy"]), (True, False, "unlisted"))
         self.assertEqual(len(pushed), 1)
 
+    def test_login_setup_saves_and_enables_login(self):
+        acc = A.Accounts(os.path.join(self.dir, "accounts.json"), {}, http=lambda *a, **k: (500, {}))
+        api = API.Api(settings=E.Settings(out_dir=self.dir), accounts=acc, ffmpeg="ffmpeg", auto_boot=False)
+        self.assertFalse(acc.summary()["twitch"]["configured"])
+        self.assertFalse(api.login_setup("twitch", {"TWITCH_CLIENT_ID": "short"})["ok"])
+        self.assertFalse(api.login_setup("youtube", {"YOUTUBE_CLIENT_ID": "x", "YOUTUBE_CLIENT_SECRET": "y"})["ok"])
+        self.assertTrue(api.login_setup("twitch", {"TWITCH_CLIENT_ID": "abcdefghij0123456789abcdefghij"})["ok"])
+        self.assertTrue(acc.summary()["twitch"]["configured"])
+        self.assertTrue(api.login_setup("kick", {"KICK_CLIENT_ID": "k", "KICK_CLIENT_SECRET": "s"})["ok"])
+        from litecast import credentials
+        creds = credentials.load(E.data_dir())
+        self.assertEqual((creds["TWITCH_CLIENT_ID"], creds["KICK_CLIENT_SECRET"]), ("abcdefghij0123456789abcdefghij", "s"))
+
     def test_save_validates(self):
         s = self.api.save({"fps": 500, "bitrate": 1, "height": 123, "mode": "nope", "tuned": {"x": 1}, "bogus": 2})
         self.assertEqual((s["fps"], s["bitrate"], s["height"], s["mode"]), (60, 300, 720, "record"))
