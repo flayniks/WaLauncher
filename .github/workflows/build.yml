@@ -17,6 +17,9 @@ jobs:
           python-version: "3.12"
       - name: Test
         run: python -m unittest discover -s tests -t .
+      - name: Probe Windows capture
+        run: python tools/win_probe.py
+        timeout-minutes: 10
       - name: Build WaLauncher.exe
         run: |
           pip install pyinstaller
