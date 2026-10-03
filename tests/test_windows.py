@@ -57,7 +57,10 @@ class WindowsTests(unittest.TestCase):
                                   E.Target(), bench_seconds=2)
         sess = E.Session(argv)
         sess.start()
-        print("gpu priority:", sess.gpu_priority)
+        print("gpu priority:", sess.gpu_priority, "| error:", W.gpu_priority_error)
+        import ctypes
+        own = ctypes.windll.kernel32.GetCurrentProcess()
+        print("own process gpu priority:", W.set_gpu_priority(own), "| error:", W.gpu_priority_error)
         self.assertIn(sess.gpu_priority, ("realtime", "high", "above normal", None))
         sess.stop()
 
