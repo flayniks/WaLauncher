@@ -125,6 +125,8 @@ if IS_WIN:
     _sig(shell32.SHGetFileInfoW, [W.LPCWSTR, W.DWORD, ctypes.POINTER(SHFILEINFOW), W.UINT, W.UINT], ctypes.c_size_t)
     _sig(shell32.ShellExecuteW, [W.HWND, W.LPCWSTR, W.LPCWSTR, W.LPCWSTR, W.LPCWSTR, ctypes.c_int], ctypes.c_ssize_t)
     _sig(user32.MonitorFromWindow, [W.HWND, W.DWORD], W.HANDLE)
+    _sig(user32.RedrawWindow, [W.HWND, ctypes.c_void_p, ctypes.c_void_p, W.UINT])
+    _sig(user32.GetForegroundWindow, [], W.HWND)
 
     class MEMORYSTATUSEX(ctypes.Structure):
         _fields_ = [("dwLength", W.DWORD), ("dwMemoryLoad", W.DWORD), ("ullTotalPhys", ctypes.c_ulonglong),
@@ -456,3 +458,18 @@ def system_info():
         pass
     lines.append("Admin: %s · GPU scheduling (HAGS): %s" % (is_admin(), hags_enabled()))
     return lines
+
+
+def is_minimized(hwnd):
+    return bool(IS_WIN and hwnd and user32.IsIconic(hwnd))
+
+
+def foreground_window():
+    return int(user32.GetForegroundWindow() or 0) if IS_WIN else 0
+
+
+def nudge_window(hwnd):
+    """Ask an app to repaint. Windows Graphics Capture only sends a frame when a window changes,
+    so a static app would otherwise stall the stream."""
+    if IS_WIN and hwnd:
+        user32.RedrawWindow(hwnd, None, None, 0x0001 | 0x0080)  # RDW_INVALIDATE | RDW_ALLCHILDREN

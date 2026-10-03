@@ -60,6 +60,8 @@ svg { flex: none; }
 .pill.busy .dot { background: var(--warn); animation: pulse 1s infinite; }
 .pill.live { color: #fff; background: rgba(255, 59, 92, .14); border-color: rgba(255, 59, 92, .45); }
 .pill.live .dot { background: var(--live); box-shadow: 0 0 12px var(--live); }
+.pill.live.brb { background: rgba(251, 191, 36, .14); border-color: rgba(251, 191, 36, .45); }
+.pill.live.brb .dot { background: var(--warn); box-shadow: 0 0 12px var(--warn); }
 @keyframes pulse { 50% { opacity: .35; } }
 
 .main {
@@ -993,8 +995,10 @@ function renderStatus() {
   // pill
   const pill = $("pill");
   if (live) {
-    pill.className = "pill live";
-    $("pillText").textContent = (live.mode === "record" ? "REC " : live.stream_dead ? "REC (stream failed) " : live.mode === "both" ? "LIVE + REC " : "LIVE ") + fmtTime(live.elapsed);
+    pill.className = "pill live" + (live.paused || live.net_down ? " brb" : "");
+    const tag = live.paused ? "BE RIGHT BACK " : live.net_down ? "RECONNECTING " :
+      live.mode === "record" ? "REC " : live.stream_dead ? "REC (stream failed) " : live.mode === "both" ? "LIVE + REC " : "LIVE ";
+    $("pillText").textContent = tag + fmtTime(live.elapsed);
   } else if (p === "ready") { pill.className = "pill ok"; $("pillText").textContent = "Ready"; }
   else if (p === "starting" || p === "stopping") { pill.className = "pill busy"; $("pillText").textContent = p === "starting" ? "Starting…" : "Saving…"; }
   else { pill.className = "pill busy"; $("pillText").textContent = p === "tuning" ? "Speed test…" : "Getting ready…"; }

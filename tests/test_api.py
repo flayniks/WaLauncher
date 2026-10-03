@@ -72,26 +72,51 @@ class ApiFlowTests(unittest.TestCase):
         files = [f for f in os.listdir(self.dir) if f.endswith(".mkv")]
         self.assertEqual(len(files), 1)
 
-    def test_frozen_app_capture_switches_to_screen(self):
-        self.api.init()
-        self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 60))
-        self.assertTrue(self.api.start()["ok"])
-        self.assertTrue(wait_for(lambda: (self.api.status()["live"] or {}).get("elapsed", 0) > 1))
-        first = self.api._session
-        # Pretend we were capturing a game window that stopped sending frames.
-        self.api._run["target"] = E.Target(kind="window", hwnd=1234, title="Game")
-        self.api._s.window_exe = self.api._run["settings"].window_exe = "game.exe"
-        real_stall, real_elapsed = E.Session.stalled_for, E.Session.elapsed
-        with mock.patch.object(E.Session, "stalled_for", lambda sess: 10.0 if sess is first else real_stall(sess)), \
-                mock.patch.object(E.Session, "elapsed", lambda sess: 10.0 if sess is first else real_elapsed(sess)):
-            self.assertTrue(wait_for(lambda: self.api._session is not first, 20))
-        self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "live" and self.api._session.running, 20))
-        st = self.api.status()
-        self.assertIn("game.exe stopped sending frames", st["warn"])
-        self.assertEqual(self.api._run["target"].kind, "screen")
-        self.assertTrue(self.api.stop())
-        self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 20))
-        self.assertEqual(len([f for f in os.listdir(self.dir) if f.endswith(".mkv")]), 2)  # before + after switch
+    def test_app_capture_never_shows_screen_and_survives_minimize_and_close(self):
+        state = {"alive": True, "min": False, "hwnd": 1234}
+        patches = [
+            mock.patch.object(W, "window_alive", lambda h: state["alive"] and h == state["hwnd"]),
+            mock.patch.object(W, "is_minimized", lambda h: state["min"]),
+            mock.patch.object(W, "nudge_window", lambda h: None),
+            mock.patch.object(W, "foreground_window", lambda: state["hwnd"]),
+            mock.patch.object(W, "find_window", lambda hwnd=0, exe="", title="": {"hwnd": state["hwnd"], "title": "Game"}
+                              if state["alive"] else None),
+            mock.patch.object(E, "window_plan", lambda caps, plan: E.Plan("test", "cpu", "libx264")),
+        ]
+        for p in patches:
+            p.start()
+        try:
+            self.api.init()
+            self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 60))
+            self.api.save({"source": "window", "window_exe": "game.exe", "window_hwnd": 1234, "window_title": "Game"})
+            self.assertTrue(self.api.start()["ok"])
+            live = lambda cap: (self.api.status()["phase"] == "live" and self.api._session and self.api._session.running
+                                and self.api._run.get("plan") and self.api._run["plan"].capture == cap)
+            self.assertTrue(wait_for(lambda: live("test"), 20))
+            # Minimize -> Be right back (never a screen capture)
+            state["min"] = True
+            self.assertTrue(wait_for(lambda: live("brb"), 20))
+            st = self.api.status()
+            self.assertEqual(st["live"]["paused"], "minimized")
+            self.assertIn("never your desktop", st["warn"])
+            # Restore -> back to the app
+            state["min"] = False
+            self.assertTrue(wait_for(lambda: live("test"), 20))
+            self.assertIsNone(self.api.status()["live"]["paused"])
+            # Close the app -> Be right back; reopen (new window handle) -> back to the app
+            state["alive"] = False
+            self.assertTrue(wait_for(lambda: live("brb"), 20))
+            self.assertEqual(self.api.status()["live"]["paused"], "closed")
+            state.update(alive=True, hwnd=5678)
+            self.assertTrue(wait_for(lambda: live("test"), 20))
+            self.assertEqual(self.api._run["window_target"].hwnd, 5678)
+            seen = {k.split("/")[0] for k in [self.api._run["plan"].key()]}
+            self.assertNotIn("ddagrab", seen)
+            self.api.stop()
+            self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 20))
+        finally:
+            for p in patches:
+                p.stop()
 
     def test_frozen_screen_capture_warns(self):
         self.api.init()
@@ -127,6 +152,19 @@ class ApiFlowTests(unittest.TestCase):
         self.api.stop()
         self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 20))
         self.assertTrue(os.path.getsize(out) > 1000)
+
+    def test_cant_connect_gives_clear_error(self):
+        self.api.init()
+        self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 60))
+        self.api.save({"mode": "stream", "platform": "custom", "custom_server": "tcp://127.0.0.1:1",
+                       "stream_keys": {"custom": ""}})
+        self.api._s.stream_keys = {"custom": "x"}
+        self.api._s.upload_tested = time.time()
+        self.assertTrue(self.api.start()["ok"])
+        self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 40))
+        st = self.api.status()
+        self.assertIn("Can't connect to Custom", st["error"])
+        self.assertIn("refused", st["detail"].lower())
 
     def test_stream_needs_key(self):
         self.api.init()

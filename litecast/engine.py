@@ -248,7 +248,7 @@ def probe(ffmpeg):
     caps.version = _text(r.stdout).splitlines()[0] if r and r.stdout else ""
     r = _run([ffmpeg, "-hide_banner", "-filters"], 15)
     listing = _text(r.stdout) if r else ""
-    caps.filters = {f for f in ("ddagrab", "gfxcapture", "scale_d3d11", "hwmap", "hwdownload", "fps")
+    caps.filters = {f for f in ("ddagrab", "gfxcapture", "scale_d3d11", "hwmap", "hwdownload", "fps", "drawtext")
                     if _listed(listing, f)}
     caps.encoders = detect_encoders(ffmpeg)
     return caps
@@ -467,6 +467,23 @@ def video_graph(plan, s, target):
             chain = [src, "fps=%d" % fps, "scale_d3d11=format=nv12"] + to_gpu_out[plan.path]
         return [], ",".join(chain) + "[v]", 0
 
+    if plan.capture == "brb":
+        # "Be right back" card shown while the picked app is minimized/not drawing. Never the desktop.
+        if s.height:
+            cw, ch = even(round(s.height * 16 / 9.0)), even(s.height)
+        else:
+            cw, ch = w, h
+        chain = ["color=c=0x15151c:s=%dx%d:r=%d" % (cw, ch, fps)]
+        font = brb_font() if plan.path == "text" else None
+        if font:
+            f = font.replace("\\", "/").replace(":", "\\:")
+            chain += ["drawtext=fontfile='%s':text='Be right back':fontcolor=white:fontsize=h/11:"
+                      "x=(w-text_w)/2:y=(h-text_h)/2-h/22" % f,
+                      "drawtext=fontfile='%s':text='Stream paused for a moment':fontcolor=0x9a9ab0:"
+                      "fontsize=h/28:x=(w-text_w)/2:y=h/2+h/16" % f]
+        chain += ["realtime", "format=nv12"]
+        return [], ",".join(chain) + "[v]", 0
+
     iq = ["-thread_queue_size", "512"]
     if plan.capture == "gdigrab":
         args = iq + ["-f", "gdigrab", "-framerate", str(fps), "-draw_mouse", str(mouse)]
@@ -499,7 +516,10 @@ def video_graph(plan, s, target):
 
 
 FIFO_QUEUE = 300  # packets, ~4 seconds of audio+video
-FIFO_OPTS = "drop_pkts_on_overflow=1:restart_with_keyframe=1:queue_size=%d" % FIFO_QUEUE
+FIFO_OPTS = ("drop_pkts_on_overflow=1:restart_with_keyframe=1:queue_size=%d:attempt_recovery=1:"
+             "recover_any_error=1:recovery_wait_time=2" % FIFO_QUEUE)
+NET_LOST_MARK = "Error opening"  # the stream output couldn't (re)connect
+NET_BACK_MARK = "Recovery successful"
 NET_CONGESTION_MARK = "FIFO queue full"
 
 
@@ -589,7 +609,7 @@ def build_command(ffmpeg, s, plan, target, stream_url=None, now=None, bench_seco
     bench = bench_seconds is not None
     streaming = not bench and s.mode in ("stream", "both")
     recording = not bench and s.mode in ("record", "both")
-    args = [ffmpeg, "-hide_banner", "-loglevel", "warning", "-nostats", "-progress", "pipe:1", "-y"]
+    args = [ffmpeg, "-hide_banner", "-loglevel", "repeat+level+info", "-nostats", "-progress", "pipe:1", "-y"]
 
     vin_args, graph, n_vin = video_graph(plan, s, target)
     args += vin_args
@@ -602,7 +622,7 @@ def build_command(ffmpeg, s, plan, target, stream_url=None, now=None, bench_seco
     for dev in audio:
         args += ["-thread_queue_size", "1024"] + _audio_input(dev)
     if not audio and streaming:  # platforms want an audio track
-        args += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
+        args += ["-re", "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
 
     maps = ["-map", "[v]"]
     a0 = n_vin
@@ -644,8 +664,10 @@ def build_command(ffmpeg, s, plan, target, stream_url=None, now=None, bench_seco
         args += ["-flags", "+global_header", "-f", "tee", "-use_fifo", "1", "-fifo_options", FIFO_OPTS,
                  "[f=flv:onfail=ignore]%s|[%s:use_fifo=0]%s" % (tee_escape(stream_url), tee_fmt, tee_escape(path))]
     elif streaming:
-        args += ["-f", "fifo", "-fifo_format", "flv", "-drop_pkts_on_overflow", "1", "-restart_with_keyframe", "1",
-                 "-queue_size", str(FIFO_QUEUE), stream_url]
+        args += ["-flags", "+global_header",  # headers up front: FLV reconnects cleanly without extra filters
+                 "-f", "fifo", "-fifo_format", "flv", "-drop_pkts_on_overflow", "1", "-restart_with_keyframe", "1",
+                 "-queue_size", str(FIFO_QUEUE), "-attempt_recovery", "1", "-recover_any_error", "1",
+                 "-recovery_wait_time", "2", stream_url]
     else:
         args += rec_fmt + [path]
     return args, path
@@ -687,8 +709,33 @@ def process_cpu_seconds(proc):
         return None
 
 
+def is_problem_line(line):
+    return any(tag in line for tag in ("[error]", "[fatal]", "[panic]", "[warning]"))
+
+
+def last_error_line(log_lines):
+    """The most useful line to show when FFmpeg fails."""
+    for tag in ("[fatal]", "[error]"):
+        for line in reversed(log_lines):
+            if tag in line:
+                return line.replace(tag + " ", "")
+    return next((ln for ln in reversed(log_lines) if ln.strip()), "")
+
+
+def brb_font():
+    """A bold system font for the 'Be right back' card, or None."""
+    if IS_WIN:
+        fonts = os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts")
+        names = ("segoeuib.ttf", "seguisb.ttf", "arialbd.ttf", "arial.ttf")
+        paths = [os.path.join(fonts, n) for n in names]
+    else:
+        paths = ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/System/Library/Fonts/Helvetica.ttc",
+                 "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"]
+    return next((p for p in paths if os.path.exists(p)), None)
+
+
 def looks_like_capture_error(log_lines):
-    blob = "\n".join(log_lines).lower()
+    blob = "\n".join(ln for ln in log_lines if is_problem_line(ln) or "[" not in ln).lower()
     return any(k in blob for k in ("ddagrab", "gfxcapture", "d3d11", "dxgi", "duplicat", "hwdownload",
                                    "hwmap", "scale_d3d11", "graphics capture", "qsv", "nvenc", "amf",
                                    "error opening input", "error initializing", "device"))

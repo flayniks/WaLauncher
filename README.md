@@ -36,7 +36,8 @@ From source: install Python 3.9+ and double-click `run.bat` (or `pip install pyw
 - **Streaming a game? Turn on Gaming boost** (Quality card). It restarts LiteCast as admin so capture gets GPU priority. Without it, a game that maxes out your GPU can starve the capture and the stream freezes. (Same reason OBS tells you to run it as admin.)
 - **Slow internet?** LiteCast tests your upload before streaming and lowers the bitrate (and resolution if needed) so the stream doesn't freeze. If the connection still can't keep up, it drops a few frames instead of freezing, and tells you.
 - **Cap your game's FPS** (in-game limit, or V-Sync). A game running uncapped uses 100% of the GPU and leaves nothing for streaming. Capping at 60 (or 30 on a potato) helps both the game and the stream.
-- If an app you picked stops sending frames (usually exclusive fullscreen), LiteCast automatically switches to capturing the whole screen and tells you.
+- **Picked an app? Only that app is ever shown.** If it's minimized, closed or stops drawing, viewers see a "Be right back" screen (your mic keeps going), never your desktop, and LiteCast switches back when you return to the app.
+- **Internet hiccup?** The stream reconnects by itself without stopping, and the recording keeps going.
 - 720p 30fps is the sweet spot. 60fps is double the work.
 - Plug in the charger and set Windows power mode to **Best performance**.
 - Capturing a game? Run it **windowed or borderless**; exclusive fullscreen can't be captured by any app without hooking into the game.

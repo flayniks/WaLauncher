@@ -188,6 +188,31 @@ class CommandTests(unittest.TestCase):
         self.assertIn("live_streaming", E.encoder_args("h264_mf", 30, 2500))
 
 
+class ReliabilityTests(unittest.TestCase):
+    def test_stream_reconnects_and_never_blocks(self):
+        argv, _ = E.build_command("ffmpeg", settings(mode="stream"), E.Plan("test", "cpu", "libx264"), SCREEN,
+                                  stream_url=URL)
+        self.assertEqual(arg_after(argv, "-attempt_recovery"), "1")
+        self.assertIn("+global_header", argv)  # FLV can reconnect without re-running header filters
+        self.assertIn("-re", argv[argv.index("anullsrc=channel_layout=stereo:sample_rate=48000") - 4:])
+        argv, _ = E.build_command("ffmpeg", settings(mode="both"), E.Plan("test", "cpu", "libx264"), SCREEN,
+                                  stream_url=URL)
+        self.assertIn("attempt_recovery=1", arg_after(argv, "-fifo_options"))
+
+    def test_brb_card(self):
+        _, graph, n = E.video_graph(E.Plan("brb", "plain", "h264_qsv"), settings(height=720), E.Target(kind="window"))
+        self.assertEqual(n, 0)
+        self.assertTrue(graph.startswith("color=c=0x15151c:s=1280x720:r=30"))
+        self.assertIn("realtime", graph)
+        self.assertNotIn("ddagrab", graph)
+
+    def test_last_error_line(self):
+        log = ["[out @ 1] [info] fine", "[tcp @ 2] [error] Connection refused", "[x @ 3] [info] bye"]
+        self.assertEqual(E.last_error_line(log), "[tcp @ 2] Connection refused")
+        self.assertFalse(E.looks_like_capture_error(["[x] [info] Stream #0: Video: h264 (h264_qsv) device d3d11"]))
+        self.assertTrue(E.looks_like_capture_error(["[Parsed_ddagrab_0 @ 1] [error] Failed to create DXGI device"]))
+
+
 class NetworkTests(unittest.TestCase):
     def test_stream_budget(self):
         s = settings(bitrate=3500, height=720, fps=30)
@@ -301,7 +326,7 @@ class RealFFmpegTests(unittest.TestCase):
         self.assertIn("libx264", E.detect_encoders(shutil.which("ffmpeg")))
 
     def test_capture_error_detection(self):
-        self.assertTrue(E.looks_like_capture_error(["[Parsed_ddagrab_0 @ 0] Failed to create DXGI device"]))
+        self.assertTrue(E.looks_like_capture_error(["[Parsed_ddagrab_0 @ 0] [error] Failed to create DXGI device"]))
         self.assertFalse(E.looks_like_capture_error(["Connection refused"]))
 
 

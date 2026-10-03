@@ -210,6 +210,8 @@ class Api:
                     "kbps": stats.get("kbps"), "drop": stats.get("drop", 0),
                     "stream_dead": self._run.get("stream_dead", False),
                     "gpu_priority": sess.gpu_priority,
+                    "paused": self._run.get("paused"),
+                    "net_down": bool(self._run.get("net_down")),
                     "reconnects": self._run.get("reconnects", 0),
                 }
             return st
@@ -451,7 +453,11 @@ class Api:
                 chain = [screen_plan] + [p for p in cands[idx + 1:] if p.key() != screen_plan.key()]
             with self._lock:
                 self._run.update(url=url, target=target, chain=chain)
+                if target.kind == "window":
+                    self._run.update(window_target=target, window_chain=list(chain), paused=None)
             self._launch(0)
+            if target.kind == "window":
+                self._bg(self._watch_window, self._run)
         except A.AuthError as e:
             self._fail(str(e))
         except Exception as e:
@@ -489,26 +495,81 @@ class Api:
             tips.append("try the Potato preset")
         return "Fixes: " + "; ".join(tips) + "."
 
-    def _switch_to_screen(self, sess):
-        """App capture stopped delivering frames (usually exclusive fullscreen) - capture its screen instead."""
-        run = self._run
+    # ---- app capture: keep it flowing, and never show anything but the app
+
+    def _restart(self, run, chain, target, **flags):
+        """Swap what FFmpeg captures (stops and relaunches it; recordings continue in a new file)."""
+        sess = self._session
+        run.update(chain=chain, target=target, switching=True, **flags)
+        if sess:
+            sess.stopping = True  # ignore its last stats while it shuts down
+            self._bg(sess.stop)
+
+    def _brb_plan(self, encoder):
+        text = "drawtext" in self._caps.filters and E.brb_font()
+        return E.Plan("brb", "text" if text else "plain", encoder)
+
+    def _watch_window(self, run):
+        """While capturing an app: nudge it to repaint, show 'Be right back' while it's minimized,
+        closed or not drawing, and switch back when it returns."""
+        last_nudge, minimized_since = 0.0, None
+        while True:
+            time.sleep(0.25)
+            with self._lock:
+                if self._run is not run or self._phase in ("ready", "error"):
+                    return
+                if self._phase != "live" or run.get("switching"):
+                    continue
+                sess, paused = self._session, run.get("paused")
+                hwnd = run["window_target"].hwnd
+            alive = W.window_alive(hwnd)
+            minimized = alive and W.is_minimized(hwnd)
+            now = time.monotonic()
+            minimized_since = (minimized_since or now) if minimized else None
+            if not paused:
+                if alive and not minimized and now - last_nudge > 0.5:
+                    W.nudge_window(hwnd)
+                    last_nudge = now
+                stalled = sess and sess.elapsed() > 5 and sess.stalled_for() > STALL_SECONDS
+                reason = ("closed" if not alive else "minimized" if minimized_since and now - minimized_since > 1
+                          else "stalled" if stalled else None)
+                if reason:
+                    with self._lock:
+                        if self._run is run and self._phase == "live":
+                            self._pause_window(run, reason)
+                continue
+            # Paused: come back when the app does.
+            if not alive:
+                win = W.find_window(0, run["settings"].window_exe, "")
+                if win and now - run["paused_at"] > 2:
+                    run["window_target"] = E.Target(kind="window", hwnd=win["hwnd"], title=win["title"],
+                                                    monitor=run["window_target"].monitor)
+                    with self._lock:
+                        self._resume_window(run)
+                continue
+            back = not minimized and (paused != "stalled" or W.foreground_window() == hwnd
+                                      or now - run["paused_at"] > 20)
+            if back and now - run["paused_at"] > 1.5:
+                with self._lock:
+                    if self._run is run and self._phase == "live":
+                        self._resume_window(run)
+
+    def _pause_window(self, run, reason):
         s = run["settings"]
-        mons = W.list_monitors() or self._monitors
-        handle = W.monitor_of_window(run["target"].hwnd)
-        idx = next((i for i, m in enumerate(mons) if handle and m.get("handle") == handle), s.monitor)
-        mon = mons[idx] if idx < len(mons) else None
-        target = E.Target(kind="screen", monitor=idx, rect=(mon["x"], mon["y"], mon["w"], mon["h"]) if mon else None,
-                          hmonitor=mon.get("handle", 0) if mon else 0)
-        cands = E.candidates(self._caps, s)
-        tuned = E.Plan.from_key(s.tuned.get(E.tune_key(s, target)) or "")
-        first = tuned or (cands[0] if cands else run["plan"])
-        run.update(target=target, chain=[first] + [p for p in cands if p.key() != first.key()],
-                   switching=True, switched=True)
-        self._warn = ("%s stopped sending frames - it's probably in exclusive fullscreen. Switched to capturing "
-                      "your whole screen%s. Tip: set the game to Borderless or Windowed."
-                      % (s.window_exe or "The app", " (recording continues in a new file)" if run.get("path") else ""))
-        sess.stopping = True  # ignore its last stats while it shuts down
-        self._bg(sess.stop)
+        app = s.window_exe or "your app"
+        why = {"closed": "%s was closed" % app, "minimized": "%s is minimized" % app,
+               "stalled": "%s stopped drawing (exclusive fullscreen or paused?)" % app}[reason]
+        self._warn = ("%s, so viewers see a 'Be right back' screen (never your desktop). It switches back "
+                      "when you return to the app.%s" % (why, " Tip: use Borderless instead of Fullscreen."
+                                                          if reason == "stalled" else ""))
+        enc = run["window_chain"][0].encoder
+        chain = [self._brb_plan(enc), E.Plan("brb", "plain", enc), E.Plan("brb", "plain", "libx264")]
+        self._restart(run, chain, run["window_target"], paused=reason, paused_at=time.monotonic())
+
+    def _resume_window(self, run):
+        if self._warn.startswith(tuple("%s " % x for x in (run["settings"].window_exe or "your app",))):
+            self._warn = ""
+        self._restart(run, run["window_chain"], run["window_target"], paused=None, paused_at=time.monotonic())
 
     def restart_as_admin(self):
         """Gaming boost: relaunch elevated so FFmpeg can get top GPU priority."""
@@ -546,10 +607,7 @@ class Api:
             self._run["stats"] = st
             s = self._run["settings"]
             run = self._run
-            if sess.elapsed() > 5 and sess.stalled_for() > STALL_SECONDS:
-                if run["target"].kind == "window" and not run.get("switched"):
-                    self._switch_to_screen(sess)
-                    return
+            if sess.elapsed() > 5 and sess.stalled_for() > STALL_SECONDS and run["target"].kind == "screen":
                 if not run.get("stall_warned"):
                     run["stall_warned"] = True
                     self._warn = ("Capture is frozen - no new frames for %d seconds. %s"
@@ -572,6 +630,25 @@ class Api:
         with self._lock:
             if sess is not self._session:
                 return
+            run = self._run
+            if "[fifo" in line and E.NET_LOST_MARK in line:
+                run["net_errors"] = run.get("net_errors", 0) + 1
+                run.setdefault("net_first_error", sess.elapsed())
+                where = E.PLATFORMS.get(run["settings"].platform, {}).get("name", "the server")
+                if (run["net_errors"] >= 3 and run["net_first_error"] < 10 and not run.get("net_recovered")
+                        and run["settings"].mode == "stream"):
+                    run["fatal"] = ("Can't connect to %s. Check your stream key and internet, then try again."
+                                    % where)
+                    sess.stopping = True
+                    self._bg(sess.stop)
+                    return
+                self._warn = ("Lost connection to %s - reconnecting automatically…%s" % (
+                    where, " (the recording keeps going)" if run["settings"].mode == "both" else ""))
+                run["net_down"] = True
+            if E.NET_BACK_MARK in line:
+                run.update(net_errors=0, net_recovered=True, net_down=False)
+                if self._warn.startswith("Lost connection"):
+                    self._warn = ""
             if E.NET_CONGESTION_MARK in line and not self._run.get("congested"):
                 self._run["congested"] = True
                 s = self._run["settings"]
@@ -596,6 +673,16 @@ class Api:
             s = run["settings"]
             elapsed = sess.elapsed()
             if run.get("switching"):
+                run["switching"] = False
+                self._bg(self._launch, 0)
+                return
+            if run.get("fatal"):
+                fatal = run.pop("fatal")
+                self._bg(self._finish, fatal, True, E.last_error_line(log))
+                return
+            if (not sess.stopping and run.get("window_target") and not run.get("paused")
+                    and not W.window_alive(run["window_target"].hwnd)):
+                self._pause_window(run, "closed")  # app closed: Be right back, wait for it to reopen
                 run["switching"] = False
                 self._bg(self._launch, 0)
                 return
@@ -627,7 +714,7 @@ class Api:
         elif target and target.kind == "window" and not W.window_alive(target.hwnd):
             self._finish("Stopped: the app you were capturing was closed", error=True)
         else:
-            err = next((ln for ln in reversed(log) if ln.strip()), "FFmpeg exited with code %d" % rc)
+            err = E.last_error_line(log) or "FFmpeg exited with code %d" % rc
             self._finish("Stopped: something went wrong", error=True, detail=err)
 
     def _fail(self, msg):
