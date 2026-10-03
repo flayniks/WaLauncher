@@ -164,7 +164,7 @@ class ApiFlowTests(unittest.TestCase):
         self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 40))
         st = self.api.status()
         self.assertIn("Can't connect to Custom", st["error"])
-        self.assertIn("refused", st["detail"].lower())
+        self.assertIn("127.0.0.1:1", st["detail"])
 
     def test_stream_needs_key(self):
         self.api.init()
