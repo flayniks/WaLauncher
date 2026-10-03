@@ -111,6 +111,8 @@ class Settings:
     out_dir: str = ""
     container: str = "mkv"
     tuned: dict = field(default_factory=dict)  # autotune results, keyed by tune_key()
+    upload_kbps: int = 0  # last measured internet upload speed
+    upload_tested: float = 0.0  # when (unix time)
 
     @classmethod
     def path(cls):
@@ -496,6 +498,57 @@ def video_graph(plan, s, target):
     return args, "[0:v]%s,format=nv12[v]" % scale, 1
 
 
+FIFO_QUEUE = 300  # packets, ~4 seconds of audio+video
+FIFO_OPTS = "drop_pkts_on_overflow=1:restart_with_keyframe=1:queue_size=%d" % FIFO_QUEUE
+NET_CONGESTION_MARK = "FIFO queue full"
+
+
+def measure_upload_kbps(timeout=25):
+    """Rough internet upload speed using Cloudflare's speed test endpoint (sends random bytes, nothing else)."""
+    url = "https://speed.cloudflare.com/__up"
+
+    def send(n):
+        req = urllib.request.Request(url, data=os.urandom(n), method="POST",
+                                     headers={"Content-Type": "application/octet-stream", "User-Agent": APP_NAME})
+        t0 = time.monotonic()
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            r.read()
+        return time.monotonic() - t0
+
+    send(64 * 1024)  # warm up the connection
+    size, best = 400 * 1024, 0.0
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        dt = send(size)
+        best = max(best, size * 8 / 1000.0 / max(dt, 1e-3))
+        if dt > 1.5 or size >= 16 * 1024 * 1024:
+            break
+        size *= 4
+    return int(best)
+
+
+def stream_budget(upload_kbps, s):
+    """What a stream can safely use on this connection: (video kbps, height, fps, reason or '')."""
+    if not upload_kbps:
+        return s.bitrate, s.height, s.fps, ""
+    safe = int(upload_kbps * 0.6) - 160  # leave room for audio + everything else on the network
+    if s.bitrate <= safe:
+        return s.bitrate, s.height, s.fps, ""
+    kbps = max(300, safe // 100 * 100)
+    height, fps = s.height, s.fps
+    if (not height or height > 720) and (kbps < 4500 or (fps > 30 and kbps < 6000)):
+        height = 720
+    if fps > 30 and kbps < 3500:
+        fps = 30
+    if kbps < 1600 and (not height or height > 480):
+        height = 480
+    if kbps < 900:
+        height, fps = min(height or 360, 360), min(fps, 30)
+    return kbps, height, fps, ("Your internet upload is %.1f Mbps, so this stream uses %d kbps at %dp %dfps "
+                               "(you picked %d kbps) to stay smooth." % (upload_kbps / 1000.0, kbps, height or 720,
+                                                                         fps, s.bitrate))
+
+
 def stream_join(server, key):
     server, key = server.strip().rstrip("/"), key.strip()
     return server + "/" + key if key else server
@@ -585,11 +638,14 @@ def build_command(ffmpeg, s, plan, target, stream_url=None, now=None, bench_seco
         else:
             rec_fmt = ["-f", "matroska"]
             tee_fmt = "f=matroska"
+    # The stream goes through a FIFO that drops packets when the internet can't keep up, instead
+    # of blocking - otherwise slow upload freezes capture and encoding for everything.
     if s.mode == "both":
-        args += ["-flags", "+global_header", "-f", "tee",
-                 "[f=flv:onfail=ignore]%s|[%s]%s" % (tee_escape(stream_url), tee_fmt, tee_escape(path))]
+        args += ["-flags", "+global_header", "-f", "tee", "-use_fifo", "1", "-fifo_options", FIFO_OPTS,
+                 "[f=flv:onfail=ignore]%s|[%s:use_fifo=0]%s" % (tee_escape(stream_url), tee_fmt, tee_escape(path))]
     elif streaming:
-        args += ["-f", "flv", stream_url]
+        args += ["-f", "fifo", "-fifo_format", "flv", "-drop_pkts_on_overflow", "1", "-restart_with_keyframe", "1",
+                 "-queue_size", str(FIFO_QUEUE), stream_url]
     else:
         args += rec_fmt + [path]
     return args, path

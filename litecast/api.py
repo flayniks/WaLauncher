@@ -22,6 +22,7 @@ __version__ = "2.0.0"
 MAX_RECONNECTS = 5
 EARLY_FAIL_SECONDS = 8
 STALL_SECONDS = 4  # no new frames for this long = capture is frozen
+UPLOAD_TEST_MAX_AGE = 6 * 3600  # re-test the internet before streaming if older than this
 
 
 def _truncate(path):
@@ -65,6 +66,7 @@ class Api:
         self._run = {}
         self._window = None  # pywebview window, set by app.py
         self._log_dir = os.path.join(E.data_dir(), "logs")
+        self._net = {"testing": False, "error": ""}
         self._selftest = False
         self._selftest_result = None
 
@@ -196,6 +198,7 @@ class Api:
                 "audio": self._audio,
                 "plan": _plan_label(self._run.get("plan") or self._plan()),
                 "live": None,
+                "net": dict(self._net, kbps=self._s.upload_kbps, tested=self._s.upload_tested),
             }
             sess = self._session
             if sess and self._phase in ("live", "stopping"):
@@ -421,6 +424,13 @@ class Api:
                     server = E.PLATFORMS[s.platform]["server"] or s.custom_server
                     key = s.stream_keys.get(s.platform, "")
                 url = E.stream_join(server, key)
+                if time.time() - self._s.upload_tested > UPLOAD_TEST_MAX_AGE:
+                    self._set(note="Checking your internet upload speed…")
+                    self._run_upload_test()
+                kbps, height, fps, why = E.stream_budget(self._s.upload_kbps, s)
+                if why:
+                    s.bitrate, s.height, s.fps = kbps, height, fps
+                    self._set(warn=why)
 
             screen_target = self._target()
             screen_plan = self._plan() or (E.candidates(self._caps, s) or [None])[0]
@@ -562,6 +572,18 @@ class Api:
         with self._lock:
             if sess is not self._session:
                 return
+            if E.NET_CONGESTION_MARK in line and not self._run.get("congested"):
+                self._run["congested"] = True
+                s = self._run["settings"]
+                self._warn = ("Your internet can't keep up with %d kbps - viewers will see skips. Next stream LiteCast "
+                              "will use less. Using Wi-Fi? Get closer to the router or plug in a cable." % s.bitrate)
+                # Remember the connection is slower than measured so the next stream picks a lower bitrate.
+                self._s.upload_kbps = max(400, min(self._s.upload_kbps or 10 ** 6, int((s.bitrate + 128) / 0.6 * 0.7)))
+                self._s.upload_tested = time.time()
+                try:
+                    self._s.save()
+                except OSError:
+                    pass
             if "Slave muxer #0 failed" in line or ("Slave '" in line and "error opening" in line):
                 self._run["stream_dead"] = True
                 self._warn = "Stream connection failed - still recording. Check your key / internet."
@@ -611,8 +633,30 @@ class Api:
     def _fail(self, msg):
         self._finish(msg, error=True)
 
+    def _summary(self):
+        """One-line verdict about the session that just ended ('' if it went fine)."""
+        sess, run = self._session, self._run
+        if not sess or not run.get("settings") or sess.elapsed() < 10:
+            return ""
+        s = run["settings"]
+        frames = (run.get("stats") or {}).get("frame", 0)
+        avg = frames / max(sess.elapsed() - 1.5, 1)
+        causes = []
+        if run.get("congested"):
+            causes.append("your internet upload was too slow for %d kbps" % s.bitrate)
+        if avg < 0.85 * s.fps:
+            causes.append("capture/encoding only averaged %.0f of %d fps (%s)" % (
+                avg, s.fps, "turn on Gaming boost, cap your game's FPS, or use the Potato preset"
+                if E.IS_WIN and not W.is_admin() else "cap your game's FPS or use the Potato preset"))
+        if not causes:
+            return ""
+        return "That one was laggy: " + "; ".join(causes) + ". Copy info for help if it keeps happening."
+
     def _finish(self, msg, error=False, detail=""):
         with self._lock:
+            summary = self._summary()
+            if summary:
+                self._warn = summary
             self._session = None
             self._phase = "ready"
             self._note = msg
@@ -624,6 +668,28 @@ class Api:
             yt.live_video = None  # that broadcast is over
 
     # ------------------------------------------------------------ JS: misc
+
+    def _run_upload_test(self):
+        self._set(net={"testing": True, "error": ""})
+        try:
+            kbps = E.measure_upload_kbps()
+        except Exception as e:
+            self._set(net={"testing": False, "error": "Couldn't test your internet (%s)." % e})
+            return None
+        with self._lock:
+            self._s.upload_kbps, self._s.upload_tested = kbps, time.time()
+            try:
+                self._s.save()
+            except OSError:
+                pass
+            self._net = {"testing": False, "error": ""}
+        return kbps
+
+    def test_upload(self):
+        if self._net.get("testing"):
+            return False
+        self._bg(self._run_upload_test)
+        return True
 
     def retune(self):
         self._retune_async(force=True)

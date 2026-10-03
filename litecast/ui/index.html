@@ -163,6 +163,7 @@ select.input option { background: var(--panel-2); }
 .engine { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); font-size: 13px; }
 .engine .gpu { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: rgba(52, 211, 153, .12); color: var(--ok); }
 .boost { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 10px 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); font-size: 13px; }
+.boost .gpu { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: rgba(52, 211, 153, .12); color: var(--ok); flex: none; }
 .boost .gpu.off { background: rgba(251, 191, 36, .12); color: var(--warn); }
 details.adv { margin-top: 12px; }
 details.adv summary { cursor: pointer; color: var(--muted); font-weight: 600; font-size: 13px; list-style: none; display: flex; align-items: center; gap: 6px; }
@@ -312,6 +313,7 @@ textarea.input { height: auto; min-height: 100px; padding: 10px 12px; resize: ve
     <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8L3 12z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="7.5" cy="8.5" r="1.5" fill="currentColor"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2 8.8a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16.2a5 5 0 0 1 6 0" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.4" fill="currentColor"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   </defs>
 </svg>
@@ -382,6 +384,9 @@ textarea.input { height: auto; min-height: 100px; padding: 10px 12px; resize: ve
           <div style="flex:1;min-width:0"><b id="planLabel">Checking your PC…</b><div class="hint" id="planHint">LiteCast picks the fastest capture method for your PC.</div></div>
           <button class="btn small ghost" id="retune" title="Run the speed test again"><svg width="14" height="14"><use href="#i-refresh"/></svg>Re-test</button>
         </div>
+        <div class="boost" id="netRow"><div class="gpu" id="netIc"><svg width="16" height="16"><use href="#i-wifi"/></svg></div>
+          <div style="flex:1;min-width:0"><b id="netTitle">Internet upload: not tested</b><div class="hint" id="netHint">LiteCast tests it before you stream and picks a bitrate that won't freeze.</div></div>
+          <button class="btn small" data-act="test-net" id="netBtn">Test</button></div>
         <div class="boost hidden" id="boost"><div class="gpu" id="boostIc"><svg width="16" height="16"><use href="#i-chip"/></svg></div>
           <div style="flex:1;min-width:0"><b id="boostTitle">Gaming boost</b><div class="hint" id="boostHint"></div></div>
           <button class="btn small" id="boostBtn">Turn on</button></div>
@@ -674,6 +679,7 @@ function infoLine(pid, info) {
   bits.push(n ? `${n} tag${n > 1 ? "s" : ""}` : "No tags");
   if (pid === "youtube") bits.push({ public: "Public", unlisted: "Unlisted", private: "Private" }[info.privacy || "public"]);
   if (pid === "twitch" && (info.labels || []).length) bits.push("Content warnings on");
+  if (pid === "twitch" && info.notification) bits.push("Notification text ready");
   return bits.join(" · ");
 }
 
@@ -734,6 +740,12 @@ function renderInfoForm(focusId) {
   let h = `<div class="stack">
     <label class="field"><span>Title <span class="count" id="cTitle">${f.title.length}/${maxT}</span></span>
       <input class="input" id="fTitle" maxlength="${maxT}" placeholder="What are you streaming today?" value="${esc(f.title)}"></label>`;
+  if (pid === "twitch") {
+    h += `<div class="field"><span>Go-live notification <span class="count" id="cNotif">${(f.notification || "").length}/140</span></span>
+        <textarea class="input" id="fNotif" maxlength="140" style="min-height:64px" placeholder="What followers see when you go live, e.g. &quot;come hang out, ranked grind!&quot;">${esc(f.notification || "")}</textarea>
+        <div class="row" style="align-items:center;gap:10px;margin-top:2px"><span class="hint" style="flex:1">Twitch doesn't let apps set this - copy it here, then paste it in Stream Manager → Edit Stream Info.</span>
+          <button class="btn small" data-act="copy-notif" style="flex:none">Copy &amp; open Twitch</button></div></div>`;
+  }
   if (pid === "youtube") {
     h += `<label class="field"><span>Description <span class="count" id="cDesc">${(f.description || "").length}/5000</span></span>
         <textarea class="input" id="fDesc" maxlength="5000" placeholder="What's this stream about? Links, schedule, socials…">${esc(f.description)}</textarea></label>
@@ -1020,6 +1032,21 @@ function renderStatus() {
   if (ST.warn || ST.error) m += `<div class="note"><a data-act="copy-diag">Copy info for help</a></div>`;
   if ($("msg").dataset.html !== m) { $("msg").innerHTML = m; $("msg").dataset.html = m; }
 
+  // internet
+  const net = ST.net || {};
+  if (net.testing) { $("netTitle").textContent = "Testing your internet upload…"; $("netBtn").disabled = true; }
+  else {
+    $("netBtn").disabled = !!live;
+    if (net.kbps) {
+      const mbps = (net.kbps / 1000).toFixed(1), safe = Math.max(300, Math.floor((net.kbps * 0.6 - 160) / 100) * 100);
+      $("netTitle").textContent = `Internet upload: ${mbps} Mbps`;
+      $("netHint").textContent = S.bitrate > safe ? `Too slow for ${S.bitrate} kbps - streams auto-drop to ${safe} kbps so they don't freeze.`
+        : `Plenty for ${S.bitrate} kbps.`;
+      $("netIc").classList.toggle("off", S.bitrate > safe);
+    }
+    if (net.error) $("netHint").textContent = net.error;
+  }
+
   // engine + encoders
   $("planLabel").textContent = ST.plan || (p === "ready" ? "Ready" : "Checking your PC…");
   $("planHint").textContent = /100% GPU/.test(ST.plan || "") ? "Frames never touch your CPU - lightest possible." :
@@ -1071,6 +1098,15 @@ document.addEventListener("click", async (ev) => {
   else if (act === "close-login") api().dismiss_login();
   else if (act === "open-dir") api().open_folder();
   else if (act === "copy-diag") copyDiag();
+  else if (act === "copy-notif") {
+    const text = (IF && IF.notification) || "";
+    try { if (text) await navigator.clipboard.writeText(text); } catch (e) { /* still open the page */ }
+    const user = ((ST.accounts || {}).twitch || {}).user || {};
+    api().open_url(user.login ? `https://dashboard.twitch.tv/u/${encodeURIComponent(user.login)}/stream-manager` : INFO_URLS.twitch);
+    toast(text ? "Copied - paste it into Edit Stream Info → Go Live Notification" : "Opened Twitch Stream Manager");
+    if (IF) api().save_stream_info("twitch", IF);
+  }
+  else if (act === "test-net") { api().test_upload(); }
   else if (act === "close-diag") $("diagBg").classList.add("hidden");
   else if (act === "edit-info") openInfo(ST.live ? "live" : "edit");
   else if (act === "close-info") closeInfo();
@@ -1109,6 +1145,7 @@ document.addEventListener("input", (ev) => {
   const id = ev.target.id, v = ev.target.value;
   if (IF && id === "fTitle") { IF.title = v; $("cTitle").textContent = `${v.length}/${ev.target.maxLength}`; return; }
   if (IF && id === "fDesc") { IF.description = v; $("cDesc").textContent = `${v.length}/5000`; return; }
+  if (IF && id === "fNotif") { IF.notification = v; $("cNotif").textContent = `${v.length}/140`; return; }
   if (IF && id === "fCat") { searchCats(v); return; }
   clearTimeout(document.inputT);
   document.inputT = setTimeout(() => {

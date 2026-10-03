@@ -180,6 +180,8 @@ def clean_info(pid, info):
         out["language"] = lang if lang in dict(LANGUAGES) else ""
         out["labels"] = [x for x in (info.get("labels") or []) if x in Twitch.LABELS]
         out["branded"] = bool(info.get("branded"))
+        # Twitch has no API for this - LiteCast keeps it so you can paste it into Stream Manager.
+        out["notification"] = str(info.get("notification") or "")[:140]
     elif pid == "youtube":
         out["description"] = str(info.get("description") or "")[:5000]
         out["privacy"] = info.get("privacy") if info.get("privacy") in ("public", "unlisted", "private") else "public"
@@ -242,7 +244,8 @@ class Twitch:
         if st != 200 or not js.get("data"):
             _fail(st, "Couldn't read your Twitch profile: %s" % _err(js, st))
         u = js["data"][0]
-        return {"id": u["id"], "name": u.get("display_name") or u.get("login"), "avatar": u.get("profile_image_url", "")}
+        return {"id": u["id"], "name": u.get("display_name") or u.get("login"), "login": u.get("login", ""),
+                "avatar": u.get("profile_image_url", "")}
 
     LABELS = ["ProfanityVulgarity", "ViolentGraphic", "Gambling", "DrugsIntoxication", "SexualThemes",
               "DebatedSocialIssuesAndPolitics"]

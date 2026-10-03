@@ -106,6 +106,28 @@ class ApiFlowTests(unittest.TestCase):
         self.api.stop()
         self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 20))
 
+    def test_slow_internet_caps_bitrate_and_warns(self):
+        self.api.init()
+        self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 60))
+        out = os.path.join(self.dir, "stream.flv")
+        self.api.save({"mode": "stream", "platform": "custom", "custom_server": self.dir, "bitrate": 3500,
+                       "stream_keys": {"custom": "stream.flv"}})
+        with mock.patch.object(E, "measure_upload_kbps", lambda: 2000):
+            self.assertTrue(self.api.start()["ok"])
+            self.assertTrue(wait_for(lambda: (self.api.status()["live"] or {}).get("elapsed", 0) > 1.5))
+        st = self.api.status()
+        self.assertEqual(st["net"]["kbps"], 2000)
+        self.assertIn("2.0 Mbps", st["warn"])
+        self.assertEqual(self.api._run["settings"].bitrate, 1000)
+        self.assertEqual(self.api.settings()["bitrate"], 3500)  # your pick is kept for next time
+        # The FIFO reports congestion -> warn and remember a lower speed.
+        self.api._on_log(self.api._session, "[fifo @ 0x1] FIFO queue full")
+        self.assertIn("internet can't keep up", self.api.status()["warn"])
+        self.assertLess(self.api._s.upload_kbps, 2000)
+        self.api.stop()
+        self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 20))
+        self.assertTrue(os.path.getsize(out) > 1000)
+
     def test_stream_needs_key(self):
         self.api.init()
         self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 60))

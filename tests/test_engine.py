@@ -154,7 +154,9 @@ class CommandTests(unittest.TestCase):
         self.assertIn("anullsrc=channel_layout=stereo:sample_rate=48000", argv)
         self.assertEqual(argv.count("-i"), 1)  # video comes from the filter graph, not an input
         self.assertEqual(argv[argv.index("-map") + 3], "0:a")
-        self.assertEqual(argv[-2:], ["flv", URL])
+        self.assertEqual(argv[-1], URL)
+        self.assertEqual(arg_after(argv, "-fifo_format"), "flv")  # slow internet drops packets instead of freezing
+        self.assertEqual(arg_after(argv, "-drop_pkts_on_overflow"), "1")
 
     def test_both_uses_tee(self):
         argv, path = E.build_command("ffmpeg", settings(mode="both", container="mp4"),
@@ -162,6 +164,8 @@ class CommandTests(unittest.TestCase):
         self.assertTrue(path.endswith(".mp4"))
         self.assertIn("+global_header", argv)
         self.assertTrue(argv[-1].startswith("[f=flv:onfail=ignore]" + URL + "|[f=mp4:"))
+        self.assertIn(":use_fifo=0]", argv[-1])  # the recording never drops packets
+        self.assertEqual(arg_after(argv, "-use_fifo"), "1")
 
     def test_two_audio_sources_are_mixed_with_right_indexes(self):
         s = settings(mode="record", mic="Mic", desktop_audio="Stereo Mix")
@@ -182,6 +186,41 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(E.encoder_args("h264_nvenc", 60, 4500)[-1], "120")
         self.assertIn("lowlatency", E.encoder_args("h264_amf", 30, 2500))
         self.assertIn("live_streaming", E.encoder_args("h264_mf", 30, 2500))
+
+
+class NetworkTests(unittest.TestCase):
+    def test_stream_budget(self):
+        s = settings(bitrate=3500, height=720, fps=30)
+        self.assertEqual(E.stream_budget(0, s)[:3], (3500, 720, 30))  # untested: leave it alone
+        self.assertEqual(E.stream_budget(20000, s), (3500, 720, 30, ""))
+        kbps, h, fps, why = E.stream_budget(2500, s)
+        self.assertEqual((kbps, h, fps), (1300, 480, 30))
+        self.assertIn("2.5 Mbps", why)
+        self.assertEqual(E.stream_budget(800, settings(bitrate=6000, height=1080, fps=60))[:3], (300, 360, 30))
+        self.assertEqual(E.stream_budget(8000, settings(bitrate=6000, height=1080, fps=60))[:3], (4600, 720, 60))
+
+    def test_measure_upload(self):
+        sizes = []
+
+        class Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return b"{}"
+
+        def fake_urlopen(req, timeout=0):
+            sizes.append(len(req.data))
+            time.sleep(len(req.data) * 8 / 4_000_000.0)  # pretend 4 Mbps upload
+            return Resp()
+
+        with mock.patch.object(E.urllib.request, "urlopen", fake_urlopen):
+            kbps = E.measure_upload_kbps()
+        self.assertTrue(3000 < kbps <= 4100, kbps)
+        self.assertGreater(max(sizes), 400 * 1024)
 
 
 class SettingsTests(unittest.TestCase):
