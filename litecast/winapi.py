@@ -5,7 +5,9 @@ Pure ctypes, no extra installs. On other platforms everything returns empty resu
 
 import base64
 import os
+import platform
 import struct
+import subprocess
 import sys
 import zlib
 
@@ -121,6 +123,14 @@ if IS_WIN:
     _sig(gdi32.SetBrushOrgEx, [W.HDC, ctypes.c_int, ctypes.c_int, ctypes.c_void_p])
     _sig(gdi32.GdiFlush, [])
     _sig(shell32.SHGetFileInfoW, [W.LPCWSTR, W.DWORD, ctypes.POINTER(SHFILEINFOW), W.UINT, W.UINT], ctypes.c_size_t)
+    _sig(shell32.ShellExecuteW, [W.HWND, W.LPCWSTR, W.LPCWSTR, W.LPCWSTR, W.LPCWSTR, ctypes.c_int], ctypes.c_ssize_t)
+    _sig(user32.MonitorFromWindow, [W.HWND, W.DWORD], W.HANDLE)
+
+    class MEMORYSTATUSEX(ctypes.Structure):
+        _fields_ = [("dwLength", W.DWORD), ("dwMemoryLoad", W.DWORD), ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong), ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong), ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong), ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
 
     GW_OWNER = 4
     GWL_EXSTYLE = -20
@@ -347,3 +357,93 @@ def exe_icon(path, size=32):
         gdi32.DeleteDC(mem)
         user32.ReleaseDC(None, screen)
         user32.DestroyIcon(info.hIcon)
+
+
+# ---------------------------------------------------------------- gaming helpers
+
+def is_admin():
+    if not IS_WIN:
+        return False
+    try:
+        return bool(shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def hags_enabled():
+    """Hardware-accelerated GPU scheduling (Windows setting)."""
+    if not IS_WIN:
+        return False
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\GraphicsDrivers") as k:
+            return winreg.QueryValueEx(k, "HwSchMode")[0] == 2
+    except OSError:
+        return False
+
+
+def set_gpu_priority(process_handle):
+    """Let a process's GPU work cut in line ahead of a game's - what OBS does so capture doesn't freeze
+    when a game pegs the GPU. The higher levels need admin. Returns the level that stuck, or None."""
+    if not IS_WIN:
+        return None
+    try:
+        fn = gdi32.D3DKMTSetProcessSchedulingPriorityClass
+        fn.argtypes, fn.restype = [W.HANDLE, ctypes.c_int], ctypes.c_long
+    except AttributeError:
+        return None
+    levels = [(4, "high"), (3, "above normal")] if hags_enabled() else [(5, "realtime"), (4, "high"), (3, "above normal")]
+    for level, name in levels:
+        try:
+            if fn(int(process_handle), level) == 0:
+                return name
+        except Exception:
+            return None
+    return None
+
+
+def monitor_of_window(hwnd):
+    """HMONITOR (int) of the screen a window is mostly on."""
+    if not IS_WIN:
+        return 0
+    return int(user32.MonitorFromWindow(hwnd, 2) or 0)  # MONITOR_DEFAULTTONEAREST
+
+
+def relaunch_as_admin():
+    """Start LiteCast again elevated (Windows asks for permission). True if it launched."""
+    if not IS_WIN:
+        return False
+    if getattr(sys, "frozen", False):
+        exe, params, cwd = sys.executable, "", os.path.dirname(sys.executable)
+    else:
+        exe = sys.executable
+        pyw = os.path.join(os.path.dirname(exe), "pythonw.exe")
+        exe = pyw if os.path.exists(pyw) else exe
+        params, cwd = "-m litecast", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return shell32.ShellExecuteW(None, "runas", exe, params, cwd, 1) > 32
+
+
+def system_info():
+    """A few lines about this PC for bug reports."""
+    lines = ["OS: %s" % platform.platform()]
+    if not IS_WIN:
+        return lines
+    lines.append("CPU: %s (%s threads)" % (os.environ.get("PROCESSOR_IDENTIFIER", platform.processor()), os.cpu_count()))
+    try:
+        mem = MEMORYSTATUSEX()
+        mem.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+        if kernel32.GlobalMemoryStatusEx(ctypes.byref(mem)):
+            lines.append("RAM: %.1f GB (%d%% used)" % (mem.ullTotalPhys / 2 ** 30, mem.dwMemoryLoad))
+    except Exception:
+        pass
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-Command",
+                            "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name + ' (driver ' + $_.DriverVersion + ')' }"],
+                           capture_output=True, timeout=8, creationflags=0x08000000)
+        for gpu in r.stdout.decode("utf-8", "replace").splitlines():
+            if gpu.strip():
+                lines.append("GPU: " + gpu.strip())
+    except Exception:
+        pass
+    lines.append("Admin: %s · GPU scheduling (HAGS): %s" % (is_admin(), hags_enabled()))
+    return lines

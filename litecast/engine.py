@@ -651,6 +651,8 @@ class Session:
         self.proc = None
         self.started = None
         self.stopping = False
+        self.gpu_priority = None
+        self._last_frame, self._last_frame_at = -1, None
         self._readers = []
         self._log_file = None
         if log_path:
@@ -674,6 +676,10 @@ class Session:
         self.proc = subprocess.Popen(self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE, creationflags=_NO_WINDOW | _ABOVE_NORMAL)
         self.started = time.monotonic()
+        if IS_WIN:
+            from . import winapi
+            self.gpu_priority = winapi.set_gpu_priority(self.proc._handle)
+            self._write_log("gpu priority: %s" % (self.gpu_priority or "normal (couldn't raise)"))
         self._readers = [threading.Thread(target=fn, daemon=True) for fn in (self._read_log, self._read_progress)]
         for t in self._readers:
             t.start()
@@ -697,6 +703,11 @@ class Session:
                     return None
                 return (st_end["frame"] - st["frame"]) / (t_end - t)
         return None
+
+    def stalled_for(self):
+        """Seconds since the frame counter last moved (since start if it never did)."""
+        since = self._last_frame_at or self.started
+        return time.monotonic() - since if since else 0.0
 
     def stop(self, timeout=10):
         """Ask FFmpeg to finish cleanly (so the file isn't broken). Blocks."""
@@ -726,6 +737,8 @@ class Session:
                 st = parse_stats(raw)
                 now = time.monotonic()
                 self.samples.append((now, st))
+                if st["frame"] > self._last_frame:
+                    self._last_frame, self._last_frame_at = st["frame"], now
                 if now - last_logged >= 5:
                     last_logged = now
                     self._write_log("stats t=%.0fs fps=%.1f now=%s speed=%s drop=%d dup=%d kbps=%s" % (

@@ -142,7 +142,7 @@ def _fake_windows(api):
     wins = [{"hwnd": 1000 + i, "title": t, "exe": e, "path": "C:/" + e, "minimized": i == 3}
             for i, (t, e, _, _) in enumerate(apps)]
     real_init, real_thumb = api.init, api.thumb
-    api.init = lambda: dict(real_init(), can_pick_windows=True)
+    api.init = lambda: dict(real_init(), can_pick_windows=True, can_elevate=True)
     api.sources = lambda: {"screens": [{"id": 0, "name": "Screen 1 (main)", "w": 1920, "h": 1080},
                                        {"id": 1, "name": "Screen 2", "w": 1366, "h": 768}], "windows": wins}
     api.thumb = lambda kind, ident: thumbs.get(int(ident)) if kind == "window" else img(256, 144, (20, 30, 60), (90, 60, 140))

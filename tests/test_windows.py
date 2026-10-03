@@ -46,6 +46,21 @@ class WindowsTests(unittest.TestCase):
         self.assertTrue(mons and mons[0]["primary"], mons)
         self.assertTrue(W.screen_thumb(mons[0]).startswith("data:image/png"))
 
+    def test_admin_and_hags_checks(self):
+        print("admin:", W.is_admin(), "hags:", W.hags_enabled())
+        print("\n".join(W.system_info()))
+        self.assertTrue(W.monitor_of_window(self.win()["hwnd"]))
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg not on PATH")
+    def test_ffmpeg_gets_gpu_priority(self):
+        argv, _ = E.build_command(shutil.which("ffmpeg"), E.Settings(height=480), E.Plan("test", "cpu", "libx264"),
+                                  E.Target(), bench_seconds=2)
+        sess = E.Session(argv)
+        sess.start()
+        print("gpu priority:", sess.gpu_priority)
+        self.assertIn(sess.gpu_priority, ("realtime", "high", "above normal", None))
+        sess.stop()
+
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg not on PATH")
     def test_capture_paths(self):
         ff = shutil.which("ffmpeg")

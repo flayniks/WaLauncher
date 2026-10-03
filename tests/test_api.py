@@ -68,6 +68,40 @@ class ApiFlowTests(unittest.TestCase):
         files = [f for f in os.listdir(self.dir) if f.endswith(".mkv")]
         self.assertEqual(len(files), 1)
 
+    def test_frozen_app_capture_switches_to_screen(self):
+        self.api.init()
+        self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 60))
+        self.assertTrue(self.api.start()["ok"])
+        self.assertTrue(wait_for(lambda: (self.api.status()["live"] or {}).get("elapsed", 0) > 1))
+        first = self.api._session
+        # Pretend we were capturing a game window that stopped sending frames.
+        self.api._run["target"] = E.Target(kind="window", hwnd=1234, title="Game")
+        self.api._s.window_exe = self.api._run["settings"].window_exe = "game.exe"
+        real_stall, real_elapsed = E.Session.stalled_for, E.Session.elapsed
+        with mock.patch.object(E.Session, "stalled_for", lambda sess: 10.0 if sess is first else real_stall(sess)), \
+                mock.patch.object(E.Session, "elapsed", lambda sess: 10.0 if sess is first else real_elapsed(sess)):
+            self.assertTrue(wait_for(lambda: self.api._session is not first, 20))
+        self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "live" and self.api._session.running, 20))
+        st = self.api.status()
+        self.assertIn("game.exe stopped sending frames", st["warn"])
+        self.assertEqual(self.api._run["target"].kind, "screen")
+        self.assertTrue(self.api.stop())
+        self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 20))
+        self.assertEqual(len([f for f in os.listdir(self.dir) if f.endswith(".mkv")]), 2)  # before + after switch
+
+    def test_frozen_screen_capture_warns(self):
+        self.api.init()
+        self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 60))
+        self.assertTrue(self.api.start()["ok"])
+        self.assertTrue(wait_for(lambda: (self.api.status()["live"] or {}).get("elapsed", 0) > 1))
+        with mock.patch.object(E.Session, "stalled_for", lambda sess: 9.0), \
+                mock.patch.object(E.Session, "elapsed", lambda sess: 10.0):
+            self.assertTrue(wait_for(lambda: self.api.status()["warn"].startswith("Capture is frozen"), 10))
+        self.assertIn("cap your game's FPS", self.api.status()["warn"])
+        self.assertIn("Linux", self.api.diagnostics())
+        self.api.stop()
+        self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 20))
+
     def test_stream_needs_key(self):
         self.api.init()
         self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 60))

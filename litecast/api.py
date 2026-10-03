@@ -21,6 +21,7 @@ __version__ = "2.0.0"
 
 MAX_RECONNECTS = 5
 EARLY_FAIL_SECONDS = 8
+STALL_SECONDS = 4  # no new frames for this long = capture is frozen
 
 
 def _truncate(path):
@@ -168,6 +169,7 @@ class Api:
             "presets": [{"id": k, "height": v[0], "fps": v[1], "kbps": v[2]} for k, v in E.PRESETS.items()],
             "platforms": [{"id": k, "name": v["name"], "server": v["server"]} for k, v in E.PLATFORMS.items()],
             "can_pick_windows": E.IS_WIN,
+            "is_admin": W.is_admin(), "can_elevate": E.IS_WIN,
             "selftest": self._selftest,
         }
 
@@ -204,6 +206,7 @@ class Api:
                     "target_fps": self._run["settings"].fps,
                     "kbps": stats.get("kbps"), "drop": stats.get("drop", 0),
                     "stream_dead": self._run.get("stream_dead", False),
+                    "gpu_priority": sess.gpu_priority,
                     "reconnects": self._run.get("reconnects", 0),
                 }
             return st
@@ -458,7 +461,7 @@ class Api:
                          on_exit=lambda rc, log: self._on_exit(sess, rc, log),
                          log_path=os.path.join(self._log_dir, "last-session.log"))
         with self._lock:
-            run.update(plan=plan, idx=idx, path=path, stream_dead=False, slow=0)
+            run.update(plan=plan, idx=idx, path=path, stream_dead=False, slow=0, stall_warned=False)
             self._session = sess
         try:
             sess.start()
@@ -466,6 +469,51 @@ class Api:
             self._fail("Couldn't start FFmpeg: %s" % e)
             return
         self._set(phase="live", note="")
+
+    def _speed_tips(self, s):
+        tips = []
+        if E.IS_WIN and not W.is_admin():
+            tips.append("Turn on Gaming boost (Quality card) so capture gets GPU priority")
+        tips.append("cap your game's FPS (e.g. 60, or turn on V-Sync) so the GPU has room")
+        if s.height > 480 or s.fps > 30:
+            tips.append("try the Potato preset")
+        return "Fixes: " + "; ".join(tips) + "."
+
+    def _switch_to_screen(self, sess):
+        """App capture stopped delivering frames (usually exclusive fullscreen) - capture its screen instead."""
+        run = self._run
+        s = run["settings"]
+        mons = W.list_monitors() or self._monitors
+        handle = W.monitor_of_window(run["target"].hwnd)
+        idx = next((i for i, m in enumerate(mons) if handle and m.get("handle") == handle), s.monitor)
+        mon = mons[idx] if idx < len(mons) else None
+        target = E.Target(kind="screen", monitor=idx, rect=(mon["x"], mon["y"], mon["w"], mon["h"]) if mon else None,
+                          hmonitor=mon.get("handle", 0) if mon else 0)
+        cands = E.candidates(self._caps, s)
+        tuned = E.Plan.from_key(s.tuned.get(E.tune_key(s, target)) or "")
+        first = tuned or (cands[0] if cands else run["plan"])
+        run.update(target=target, chain=[first] + [p for p in cands if p.key() != first.key()],
+                   switching=True, switched=True)
+        self._warn = ("%s stopped sending frames - it's probably in exclusive fullscreen. Switched to capturing "
+                      "your whole screen%s. Tip: set the game to Borderless or Windowed."
+                      % (s.window_exe or "The app", " (recording continues in a new file)" if run.get("path") else ""))
+        sess.stopping = True  # ignore its last stats while it shuts down
+        self._bg(sess.stop)
+
+    def restart_as_admin(self):
+        """Gaming boost: relaunch elevated so FFmpeg can get top GPU priority."""
+        with self._lock:
+            if self._phase in ("live", "stopping", "starting"):
+                return {"ok": False, "error": "Stop streaming/recording first."}
+        if not W.relaunch_as_admin():
+            return {"ok": False, "error": "Windows didn't allow it (you can also right-click LiteCast → Run as administrator)."}
+
+        def close():
+            time.sleep(0.5)
+            if self._window:
+                self._window.destroy()
+        self._bg(close)
+        return {"ok": True}
 
     def stop(self):
         with self._lock:
@@ -483,17 +531,29 @@ class Api:
 
     def _on_stats(self, sess, st):
         with self._lock:
-            if sess is not self._session:
+            if sess is not self._session or sess.stopping:
                 return
             self._run["stats"] = st
             s = self._run["settings"]
+            run = self._run
+            if sess.elapsed() > 5 and sess.stalled_for() > STALL_SECONDS:
+                if run["target"].kind == "window" and not run.get("switched"):
+                    self._switch_to_screen(sess)
+                    return
+                if not run.get("stall_warned"):
+                    run["stall_warned"] = True
+                    self._warn = ("Capture is frozen - no new frames for %d seconds. %s"
+                                  % (sess.stalled_for(), self._speed_tips(s)))
+            elif run.get("stall_warned") and sess.stalled_for() < 1:
+                run["stall_warned"] = False
+                if self._warn.startswith("Capture is frozen"):
+                    self._warn = ""
             fps = sess.steady_fps()
-            if fps is not None and sess.elapsed() > 6:
-                self._run["slow"] = self._run.get("slow", 0) + 1 if fps < 0.8 * s.fps else 0
-                if self._run["slow"] >= 12:
-                    self._warn = ("Only getting %.0f of %d fps - your PC can't keep up. Stop and pick a lower "
-                                  "preset, or close other apps." % (fps, s.fps))
-                elif self._warn.startswith("Only getting") and self._run["slow"] == 0:
+            if fps is not None and sess.elapsed() > 6 and not run.get("stall_warned"):
+                run["slow"] = run.get("slow", 0) + 1 if fps < 0.8 * s.fps else 0
+                if run["slow"] >= 12:
+                    self._warn = "Only getting %.0f of %d fps. %s" % (fps, s.fps, self._speed_tips(s))
+                elif self._warn.startswith("Only getting") and run["slow"] == 0:
                     self._warn = ""
             if self._run.get("reconnects") and st["frame"] > 0 and self._warn.startswith("Stream dropped"):
                 self._warn = ""
@@ -513,6 +573,10 @@ class Api:
             run = self._run
             s = run["settings"]
             elapsed = sess.elapsed()
+            if run.get("switching"):
+                run["switching"] = False
+                self._bg(self._launch, 0)
+                return
             user_stop = sess.stopping
             if (not user_stop and rc != 0 and elapsed < EARLY_FAIL_SECONDS and run["idx"] + 1 < len(run["chain"])
                     and E.looks_like_capture_error(log)):
@@ -603,12 +667,27 @@ class Api:
 
     def diagnostics(self):
         lines = ["%s %s on %s" % (E.APP_NAME, __version__, sys.platform)]
+        try:
+            lines += W.system_info()
+        except Exception as e:
+            lines.append("system info failed: %s" % e)
         if self._caps:
             lines += [self._caps.version, "filters: %s" % sorted(self._caps.filters),
                       "encoders: %s" % self._caps.encoders]
-        lines.append("plan: %s" % _plan_label(self._plan()))
-        for r in getattr(self, "_tune_results", []):
+        s = self._s
+        lines.append("settings: mode=%s platform=%s source=%s%s %sp@%dfps %dkbps encoder=%s mic=%s pc_audio=%s" % (
+            s.mode, s.platform, s.source, " (%s)" % s.window_exe if s.source == "window" else " #%d" % s.monitor,
+            s.height or "native", s.fps, s.bitrate, s.encoder, bool(s.mic), bool(s.desktop_audio)))
+        lines.append("plan: %s (%s)" % (_plan_label(self._plan()), (self._plan() or E.Plan("?", "?", "?")).key()))
+        tune = getattr(self, "_tune_results", [])
+        for r in tune:
             lines.append("tune %(plan)s ok=%(ok)s fps=%(fps)s cpu=%(cpu)s %(error)s" % r)
+        if not tune:
+            try:
+                with open(os.path.join(self._log_dir, "autotune.log"), encoding="utf-8") as f:
+                    lines += ["--- speed test ---"] + [ln for ln in f.read().splitlines() if not ln.startswith("===")][-20:]
+            except OSError:
+                pass
         try:
             with open(os.path.join(self._log_dir, "last-session.log"), encoding="utf-8") as f:
                 lines += ["--- last session ---"] + f.read().splitlines()[-40:]

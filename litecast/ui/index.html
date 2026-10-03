@@ -59,7 +59,7 @@ svg { flex: none; }
 .pill.ok .dot { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
 .pill.busy .dot { background: var(--warn); animation: pulse 1s infinite; }
 .pill.live { color: #fff; background: rgba(255, 59, 92, .14); border-color: rgba(255, 59, 92, .45); }
-.pill.live .dot { background: var(--live); box-shadow: 0 0 12px var(--live); animation: pulse 1.2s infinite; }
+.pill.live .dot { background: var(--live); box-shadow: 0 0 12px var(--live); }
 @keyframes pulse { 50% { opacity: .35; } }
 
 .main {
@@ -162,6 +162,8 @@ select.input option { background: var(--panel-2); }
 .preset.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; background: linear-gradient(180deg, rgba(139, 92, 246, .16), rgba(139, 92, 246, .04)); }
 .engine { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); font-size: 13px; }
 .engine .gpu { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: rgba(52, 211, 153, .12); color: var(--ok); }
+.boost { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 10px 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); font-size: 13px; }
+.boost .gpu.off { background: rgba(251, 191, 36, .12); color: var(--warn); }
 details.adv { margin-top: 12px; }
 details.adv summary { cursor: pointer; color: var(--muted); font-weight: 600; font-size: 13px; list-style: none; display: flex; align-items: center; gap: 6px; }
 details.adv summary::-webkit-details-marker { display: none; }
@@ -380,6 +382,9 @@ textarea.input { height: auto; min-height: 100px; padding: 10px 12px; resize: ve
           <div style="flex:1;min-width:0"><b id="planLabel">Checking your PC…</b><div class="hint" id="planHint">LiteCast picks the fastest capture method for your PC.</div></div>
           <button class="btn small ghost" id="retune" title="Run the speed test again"><svg width="14" height="14"><use href="#i-refresh"/></svg>Re-test</button>
         </div>
+        <div class="boost hidden" id="boost"><div class="gpu" id="boostIc"><svg width="16" height="16"><use href="#i-chip"/></svg></div>
+          <div style="flex:1;min-width:0"><b id="boostTitle">Gaming boost</b><div class="hint" id="boostHint"></div></div>
+          <button class="btn small" id="boostBtn">Turn on</button></div>
         <details class="adv"><summary><svg width="12" height="12"><use href="#i-chev"/></svg>Advanced</summary>
           <div class="stack">
             <div class="grid2">
@@ -476,6 +481,16 @@ textarea.input { height: auto; min-height: 100px; padding: 10px 12px; resize: ve
       <button class="btn ghost" data-act="close-info">Cancel</button>
       <button class="btn" id="infoSave">Save</button>
       <button class="go small" id="infoGo"><span class="rec"></span><span id="infoGoText">Go live</span></button></div>
+  </div>
+</div>
+
+<!-- diagnostics text (when the clipboard isn't available) -->
+<div class="modal-bg hidden" id="diagBg">
+  <div class="modal" style="width:min(700px,92vw)">
+    <div class="modal-h"><h3>Info for help</h3><div class="spacer"></div>
+      <button class="btn small ghost" data-act="close-diag"><svg width="14" height="14"><use href="#i-x"/></svg></button></div>
+    <div class="modal-b"><p class="hint" style="margin:0 0 10px">Press Ctrl+A then Ctrl+C in the box, and paste it to whoever's helping you.</p>
+      <textarea class="input" id="diagText" readonly style="width:100%;height:320px;font-family:var(--mono);font-size:12px"></textarea></div>
   </div>
 </div>
 
@@ -1002,6 +1017,7 @@ function renderStatus() {
   else if (p === "starting") m += `<div class="note">${esc(ST.note)}</div>`;
   if (ST.warn) m += `<div class="warn">${esc(ST.warn)}</div>`;
   if (ST.detail) m += `<div class="detail" title="${esc(ST.detail)}">${esc(ST.detail)}</div>`;
+  if (ST.warn || ST.error) m += `<div class="note"><a data-act="copy-diag">Copy info for help</a></div>`;
   if ($("msg").dataset.html !== m) { $("msg").innerHTML = m; $("msg").dataset.html = m; }
 
   // engine + encoders
@@ -1031,7 +1047,7 @@ function fillAudio(devs) {
 
 async function poll() {
   try { ST = await api().status(); renderStatus(); } catch (e) { /* bridge busy */ }
-  setTimeout(poll, ST.live ? 500 : 400);
+  setTimeout(poll, ST.live ? 1000 : 400);
 }
 
 // ---------------------------------------------------------------- events
@@ -1054,6 +1070,8 @@ document.addEventListener("click", async (ev) => {
   else if (act === "cancel-login") api().cancel_login();
   else if (act === "close-login") api().dismiss_login();
   else if (act === "open-dir") api().open_folder();
+  else if (act === "copy-diag") copyDiag();
+  else if (act === "close-diag") $("diagBg").classList.add("hidden");
   else if (act === "edit-info") openInfo(ST.live ? "live" : "edit");
   else if (act === "close-info") closeInfo();
   else if (act === "rm-tag") { IF.tags.splice(+t.dataset.i, 1); renderInfoForm("fTag"); }
@@ -1109,10 +1127,27 @@ $("openDir").addEventListener("click", () => api().open_folder());
 $("retune").addEventListener("click", () => api().retune());
 $("openLogs").addEventListener("click", () => api().open_logs());
 $("bootRetry").addEventListener("click", () => api().retry_boot());
-$("copyDiag").addEventListener("click", async () => {
+async function copyDiag() {
+  toast("Collecting info…");
   const text = await api().diagnostics();
-  try { await navigator.clipboard.writeText(text); toast("Diagnostics copied - paste them to whoever's helping you"); }
-  catch (e) { toast("Couldn't copy - open the logs folder instead", true); }
+  try { await navigator.clipboard.writeText(text); toast("Copied! Paste it to whoever's helping you"); }
+  catch (e) { $("diagText").value = text; $("diagBg").classList.remove("hidden"); $("diagText").select(); }
+}
+$("copyDiag").addEventListener("click", copyDiag);
+
+function renderBoost() {
+  if (!INFO.can_elevate) return;
+  const on = INFO.is_admin;
+  $("boost").classList.remove("hidden");
+  $("boostIc").classList.toggle("off", !on);
+  $("boostTitle").textContent = on ? "Gaming boost: on" : "Gaming boost: off";
+  $("boostHint").textContent = on ? "Capture gets GPU priority, so your stream won't freeze when a game maxes out the GPU."
+    : "Streaming a game? Turn this on so the stream doesn't freeze when the game maxes out your GPU (restarts LiteCast as admin).";
+  $("boostBtn").classList.toggle("hidden", on);
+}
+$("boostBtn").addEventListener("click", async () => {
+  const res = await api().restart_as_admin();
+  if (!res.ok) toast(res.error, true); else toast("Restarting with Gaming boost…");
 });
 $("go").addEventListener("click", toggleGo);
 $("infoSave").addEventListener("click", infoPrimary);
@@ -1175,7 +1210,8 @@ async function start() {
   renderSettings();
   poll();
   loadSources().then(refreshPreview);
-  setInterval(() => { if (!ST.live && document.visibilityState === "visible" && $("pickerBg").classList.contains("hidden")) refreshPreview(); }, 8000);
+  setInterval(() => { if (!ST.live && document.hasFocus() && $("pickerBg").classList.contains("hidden")) refreshPreview(); }, 8000);
+  renderBoost();
   if (INFO.selftest) selftest();
 }
 
