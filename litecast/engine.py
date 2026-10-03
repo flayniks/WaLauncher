@@ -679,7 +679,7 @@ class Session:
         if IS_WIN:
             from . import winapi
             self.gpu_priority = winapi.set_gpu_priority(self.proc._handle)
-            self._write_log("gpu priority: %s" % (self.gpu_priority or "normal (couldn't raise)"))
+            self._write_log("gpu priority: %s" % (self.gpu_priority or "normal (couldn't raise: %s)" % winapi.gpu_priority_error))
         self._readers = [threading.Thread(target=fn, daemon=True) for fn in (self._read_log, self._read_progress)]
         for t in self._readers:
             t.start()

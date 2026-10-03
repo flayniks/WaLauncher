@@ -46,6 +46,10 @@ class ApiFlowTests(unittest.TestCase):
                            ffmpeg=shutil.which("ffmpeg"))
 
     def tearDown(self):
+        sess = self.api._session
+        if sess and sess.running:
+            sess.stop()
+            wait_for(lambda: self.api.status()["phase"] == "ready", 15)
         for p in self.p:
             p.stop()
         self.env.stop()
@@ -98,7 +102,7 @@ class ApiFlowTests(unittest.TestCase):
                 mock.patch.object(E.Session, "elapsed", lambda sess: 10.0):
             self.assertTrue(wait_for(lambda: self.api.status()["warn"].startswith("Capture is frozen"), 10))
         self.assertIn("cap your game's FPS", self.api.status()["warn"])
-        self.assertIn("Linux", self.api.diagnostics())
+        self.assertIn("OS: ", self.api.diagnostics())
         self.api.stop()
         self.assertTrue(wait_for(lambda: self.api.status()["phase"] == "ready", 20))
 

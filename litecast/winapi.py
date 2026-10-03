@@ -392,14 +392,23 @@ def set_gpu_priority(process_handle):
         fn.argtypes, fn.restype = [W.HANDLE, ctypes.c_int], ctypes.c_long
     except AttributeError:
         return None
+    global gpu_priority_error
     levels = [(4, "high"), (3, "above normal")] if hags_enabled() else [(5, "realtime"), (4, "high"), (3, "above normal")]
+    codes = []
     for level, name in levels:
         try:
-            if fn(int(process_handle), level) == 0:
-                return name
-        except Exception:
+            status = fn(int(process_handle), level)
+        except Exception as e:
+            gpu_priority_error = str(e)
             return None
+        if status == 0:
+            return name
+        codes.append("%s=0x%08x" % (name, status & 0xFFFFFFFF))
+    gpu_priority_error = ", ".join(codes)
     return None
+
+
+gpu_priority_error = ""
 
 
 def monitor_of_window(hwnd):
