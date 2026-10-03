@@ -53,16 +53,23 @@ class WindowsTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg not on PATH")
     def test_ffmpeg_gets_gpu_priority(self):
-        argv, _ = E.build_command(shutil.which("ffmpeg"), E.Settings(height=480), E.Plan("test", "cpu", "libx264"),
-                                  E.Target(), bench_seconds=2)
-        sess = E.Session(argv)
-        sess.start()
-        print("gpu priority:", sess.gpu_priority, "| error:", W.gpu_priority_error)
         import ctypes
-        own = ctypes.windll.kernel32.GetCurrentProcess()
-        print("own process gpu priority:", W.set_gpu_priority(own), "| error:", W.gpu_priority_error)
-        self.assertIn(sess.gpu_priority, ("realtime", "high", "above normal", None))
-        sess.stop()
+        print("own process gpu priority:", W.set_gpu_priority(ctypes.windll.kernel32.GetCurrentProcess()))
+        ff = shutil.which("ffmpeg")
+        # One FFmpeg that never touches the GPU, one that opens a D3D11 device.
+        cpu_only = [ff, "-v", "error", "-re", "-f", "lavfi", "-i", "color=s=320x240:r=30", "-t", "4", "-f", "null", "-"]
+        d3d = [ff, "-v", "error", "-init_hw_device", "d3d11va=dx", "-filter_hw_device", "dx", "-re", "-f", "lavfi",
+               "-i", "color=s=320x240:r=30", "-t", "4", "-vf", "format=nv12,hwupload,hwdownload,format=nv12",
+               "-f", "null", "-"]
+        for name, argv in (("cpu-only", cpu_only), ("d3d11", d3d)):
+            log = []
+            sess = E.Session(argv, on_log=log.append)
+            sess.start()
+            time.sleep(3)
+            print("%s ffmpeg gpu priority: %s | last error: %s | ffmpeg says: %s"
+                  % (name, sess.gpu_priority, W.gpu_priority_error, log[-1:] or ""))
+            self.assertIn(sess.gpu_priority, ("realtime", "high", "above normal", None))
+            sess.stop()
 
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg not on PATH")
     def test_capture_paths(self):

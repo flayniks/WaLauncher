@@ -677,9 +677,7 @@ class Session:
                                      stderr=subprocess.PIPE, creationflags=_NO_WINDOW | _ABOVE_NORMAL)
         self.started = time.monotonic()
         if IS_WIN:
-            from . import winapi
-            self.gpu_priority = winapi.set_gpu_priority(self.proc._handle)
-            self._write_log("gpu priority: %s" % (self.gpu_priority or "normal (couldn't raise: %s)" % winapi.gpu_priority_error))
+            threading.Thread(target=self._raise_gpu_priority, daemon=True).start()
         self._readers = [threading.Thread(target=fn, daemon=True) for fn in (self._read_log, self._read_progress)]
         for t in self._readers:
             t.start()
@@ -703,6 +701,19 @@ class Session:
                     return None
                 return (st_end["frame"] - st["frame"]) / (t_end - t)
         return None
+
+    def _raise_gpu_priority(self):
+        """Windows only accepts this once FFmpeg has opened the GPU, so keep trying for a bit."""
+        from . import winapi
+        for _ in range(40):
+            if not self.running:
+                return
+            self.gpu_priority = winapi.set_gpu_priority(self.proc._handle)
+            if self.gpu_priority:
+                self._write_log("gpu priority: %s (after %.1fs)" % (self.gpu_priority, self.elapsed()))
+                return
+            time.sleep(0.25)
+        self._write_log("gpu priority: normal (couldn't raise: %s)" % winapi.gpu_priority_error)
 
     def stalled_for(self):
         """Seconds since the frame counter last moved (since start if it never did)."""
