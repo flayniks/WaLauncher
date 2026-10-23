@@ -135,6 +135,7 @@ export class Player extends EventTarget {
     this._tick = this.tick.bind(this);
     this._raf = requestAnimationFrame(this._tick);
     window.addEventListener('clipwave:fonts', () => (this.dirty = true));
+    window.addEventListener('clipwave:ai', () => (this.dirty = true));
   }
 
   ensureAudio() {

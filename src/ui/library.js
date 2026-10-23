@@ -11,6 +11,8 @@ import { TEXT_TEMPLATES, EMOJI, PROJECT_TEMPLATES, buildFromTemplate } from '../
 import { SFX, renderSfx } from '../sfx.js';
 import { previewer, PREVIEW_W, PREVIEW_H } from './previewer.js';
 import { WHISPER_MODELS, LANGUAGES, autoCaptions, parseSubtitles, addCaptionClips, toSrt } from '../captions.js';
+import { speak, VOICES } from '../tts.js';
+import { jobButton } from './ai-tools.js';
 
 const TABS = [
   ['media', 'Media', 'folder'],
@@ -192,6 +194,7 @@ export class Library {
       this.panel.append(list);
     }
     this.panel.append(h('h4', { class: 'sub' }, 'Voiceover'), this.recorder());
+    this.panel.append(h('h4', { class: 'sub' }, 'Text to speech'), this.ttsBox());
     this.panel.append(h('h4', { class: 'sub' }, 'Sound effects'), h('p', { class: 'hint' }, 'Made on your computer, free to use anywhere.'));
     const grid = h('div', { class: 'chip-grid' });
     for (const [id, name] of SFX) {
@@ -203,6 +206,26 @@ export class Library {
       } }, icon('volume', 14), name));
     }
     this.panel.append(grid);
+  }
+
+  // Turns typed text into a voice clip with Kokoro, on this computer.
+  ttsBox() {
+    this.tts = this.tts || { text: 'Welcome back to the channel. Today we are trying something new.', voice: 'af_heart', speed: 1 };
+    const st = this.tts;
+    const ta = h('textarea', { id: 'tts-text', rows: 3, 'aria-label': 'Text to speak', value: st.text, oninput: () => (st.text = ta.value) });
+    return h('div', { class: 'tts' },
+      ta,
+      select({ label: 'Voice', options: VOICES, get: () => st.voice, set: (v) => (st.voice = v) }),
+      slider({ label: 'Speed', min: 0.6, max: 1.6, step: 0.05, format: (v) => (+v).toFixed(2) + 'x', get: () => st.speed, set: (v) => (st.speed = v) }),
+      jobButton('Make voice clip', 'mic', async (progress) => {
+        const blob = await speak(st.text, { voice: st.voice, speed: st.speed }, progress);
+        const m = await this.media.addBlob(blob, `Voice - ${st.text.slice(0, 24).replace(/[\\/:*?"<>|\n]/g, ' ')}.wav`);
+        if (!m) throw new Error('The voice clip could not be added.');
+        ops.addMedia(this.store, m, this.app.player.time);
+        return 'Voice clip added at the playhead';
+      }, { primary: true }),
+      h('p', { class: 'hint' }, 'English voices by Kokoro (Apache-2.0). The model downloads once, about 90 MB.'),
+    );
   }
 
   // Records from the microphone and drops the take on an audio track at the playhead.

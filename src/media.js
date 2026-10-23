@@ -109,7 +109,7 @@ export class MediaLibrary extends EventTarget {
   }
 
   async analyzeImage(m) {
-    const bmp = await createImageBitmap(m.blob);
+    const bmp = await decodePicture(m.blob);
     m.width = bmp.width;
     m.height = bmp.height;
     this.bitmaps.set(m.id, bmp);
@@ -238,7 +238,7 @@ export class MediaLibrary extends EventTarget {
     if (this.bitmaps.has(id)) return this.bitmaps.get(id);
     const m = this.items.get(id);
     if (!m) return null;
-    const bmp = await createImageBitmap(m.blob);
+    const bmp = await decodePicture(m.blob);
     this.bitmaps.set(id, bmp);
     return bmp;
   }
@@ -259,6 +259,18 @@ export class MediaLibrary extends EventTarget {
     db.del('media', id);
     this.emit();
   }
+}
+
+// Decodes a photo into a canvas. WebGL ignores its flip-on-upload setting for ImageBitmaps, so pictures are kept as
+// canvases to upload the same way as video frames.
+async function decodePicture(blob) {
+  const bmp = await createImageBitmap(blob);
+  const c = document.createElement('canvas');
+  c.width = bmp.width;
+  c.height = bmp.height;
+  c.getContext('2d').drawImage(bmp, 0, 0);
+  bmp.close();
+  return c;
 }
 
 function toJpeg(canvas) {

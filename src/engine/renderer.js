@@ -10,6 +10,8 @@ import { clipAnimStates, transformAt } from './animation.js';
 import { renderText, renderShape } from './text.js';
 import { transitionInfo, sourceTime, clipEnd } from '../model.js';
 import { LUTS, LUT_SHADER } from '../luts.js';
+import { computeMatte, matteReady, MATTE_SHADER } from '../ai.js';
+import { stabAt } from '../stabilize.js';
 
 const BLEND_INDEX = Object.fromEntries(SH.BLEND_MODES.map(([k], i) => [k, i]));
 const MASK_INDEX = Object.fromEntries(SH.MASK_TYPES.map(([k], i) => [k, i]));
@@ -49,6 +51,7 @@ export class Renderer {
     this.accum = null;
     this.frameIndex = 0;
     this.lutTex = new Map();
+    this.maskTex = new Map();
   }
 
   // GPU copy of a loaded LUT, made once per renderer.
@@ -229,8 +232,9 @@ export class Renderer {
     return entry.t;
   }
 
-  // Applies chroma key, color, effects and animated blur. Returns {tex, w, h, temp} where temp must be released.
-  processLayer(clip, src, local, pw, ph, animBlur) {
+  // Applies background cutout, chroma key, color, effects and animated blur.
+  // Returns {tex, w, h, temp} where temp must be released.
+  processLayer(clip, src, local, pw, ph, animBlur, raw) {
     const g = this.g;
     let cur = src;
     let temp = null;
@@ -241,6 +245,28 @@ export class Renderer {
       temp = out;
       cur = out;
     };
+    const cut = clip.cutout;
+    if (cut && cut.mode && cut.mode !== 'off' && raw && raw.image) {
+      const mk = computeMatte(raw.image, raw.w, raw.h, clip.type === 'image');
+      if (mk) {
+        const gl = this.gl;
+        let mt = this.maskTex.get(clip.id);
+        if (!mt) this.maskTex.set(clip.id, (mt = g.texture()));
+        gl.bindTexture(gl.TEXTURE_2D, mt.tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, mk.w, mk.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, mk.data);
+        mt.w = mk.w;
+        mt.h = mk.h;
+        const crop = raw.crop;
+        const thr = cut.threshold ?? 0.5, soft = Math.max(0.01, cut.softness ?? 0.2);
+        const uniforms = { uCrop: [crop.l, crop.b, 1 - crop.l - crop.r, 1 - crop.t - crop.b], uLo: thr - soft / 2, uHi: thr + soft / 2, uMode: cut.mode === 'blur' ? 1 : 0 };
+        if (cut.mode === 'blur') {
+          let blurred = null;
+          this.blurInto(cur, (cut.blur ?? 0.5) * 50 * (ph / 1080), pw, ph, (o) => (blurred = o));
+          pass(this.prog('matte', MATTE_SHADER), uniforms, { uTex: cur, uMask: mt, uBlurred: blurred });
+          g.release(blurred);
+        } else pass(this.prog('matte', MATTE_SHADER), uniforms, { uTex: cur, uMask: mt });
+      }
+    }
     if (clip.chroma && clip.chroma.enabled) {
       const c = clip.chroma;
       pass(this.prog('chroma', SH.CHROMA), { uKey: hexToRgb(c.color), uSimilarity: c.similarity * 0.5, uSmoothness: c.smoothness * 0.5, uSpill: c.spill * 0.5 }, { uTex: cur });
@@ -326,7 +352,8 @@ export class Renderer {
     // Effects run at the clip's size on the frame (capped by the source size), so they match across resolutions.
     const pw = isMedia ? Math.max(2, Math.min(Math.round(baseW), src.w)) : src.w;
     const ph = isMedia ? Math.max(2, Math.min(Math.round(baseH), src.h)) : src.h;
-    const needsProcess = (clip.chroma && clip.chroma.enabled) || gradeFor(clip.filter) || hasAdjust(clip.adjust) || (clip.lut && clip.lut.id && LUTS.has(clip.lut.id)) || (clip.effects && clip.effects.some((e) => e.enabled !== false)) || animBlur > 0.3;
+    const cutout = clip.cutout && clip.cutout.mode && clip.cutout.mode !== 'off' && matteReady();
+    const needsProcess = cutout || (clip.chroma && clip.chroma.enabled) || gradeFor(clip.filter) || hasAdjust(clip.adjust) || (clip.lut && clip.lut.id && LUTS.has(clip.lut.id)) || (clip.effects && clip.effects.some((e) => e.enabled !== false)) || animBlur > 0.3;
     let layer = src;
     let temp = null;
     let cropRect = [crop.l, crop.t, 1 - crop.r, 1 - crop.b];
@@ -342,7 +369,9 @@ export class Renderer {
         input = cropTemp;
         cropRect = [0, 0, 1, 1];
       }
-      const p = this.processLayer(clip, input, local, pw, ph, animBlur);
+      const entry = this.tex.get(clip.id);
+      const raw = isMedia && entry ? { image: entry.src, w: src.w, h: src.h, crop: cropped ? crop : { l: 0, t: 0, r: 0, b: 0 } } : null;
+      const p = this.processLayer(clip, input, local, pw, ph, animBlur, raw);
       layer = { tex: p.tex, w: p.w, h: p.h };
       temp = p.temp;
       if (cropTemp && cropTemp !== temp) g.release(cropTemp);
@@ -366,6 +395,15 @@ export class Renderer {
         m = mul(m, a);
         opacity *= s.opacity;
       }
+    }
+    // Stabilization: zoom in a little, then undo the measured shake for this source frame.
+    const stab = clip.stab;
+    if (stab && stab.enabled && stab.data) {
+      const c = stabAt(stab.data, sourceTime(clip, t));
+      const z = stab.zoom || 1.1;
+      m = mul(m, scaleM(z, z));
+      m = mul(m, rotate((c.r * 180) / Math.PI));
+      m = mul(m, translate((c.x * baseW) / Math.max(0.01, 1 - crop.l - crop.r), (c.y * baseH) / Math.max(0.01, 1 - crop.t - crop.b)));
     }
     m = mul(m, scaleM(baseW, baseH));
     const inv = invert(m);
@@ -455,6 +493,7 @@ export class Renderer {
 
   dispose() {
     for (const t of this.lutTex.values()) this.g.deleteTexture(t);
+    for (const t of this.maskTex.values()) this.g.deleteTexture(t);
     for (const e of this.tex.values()) this.g.deleteTexture(e.t);
     this.tex.clear();
     this.g.dispose();

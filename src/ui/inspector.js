@@ -9,6 +9,8 @@ import { BLEND_MODES, MASK_TYPES } from '../engine/shaders.js';
 import { FONTS, TEXT_ANIMS, SHAPES } from '../engine/text.js';
 import * as ops from '../ops.js';
 import { LUTS, importLut } from '../luts.js';
+import { buildCutout, buildStabilize, reverseSection, readAloudSection, jobButton } from './ai-tools.js';
+import { autoReframe } from '../reframe.js';
 
 const ADJUST = [
   ['exposure', 'Exposure', -2, 2],
@@ -30,8 +32,8 @@ const ADJUST = [
 const PROP_PATH = { x: ['transform', 'x', 0], y: ['transform', 'y', 0], scale: ['transform', 'scale', 1], rotation: ['transform', 'rotation', 0], opacity: ['transform', 'opacity', 1], volume: [null, 'volume', 1] };
 
 const TABS = {
-  video: [['basic', 'Basic'], ['anim', 'Animation'], ['adjust', 'Adjust'], ['effects', 'Effects'], ['mask', 'Mask'], ['speed', 'Speed'], ['audio', 'Audio'], ['key', 'Chroma key']],
-  image: [['basic', 'Basic'], ['anim', 'Animation'], ['adjust', 'Adjust'], ['effects', 'Effects'], ['mask', 'Mask'], ['key', 'Chroma key']],
+  video: [['basic', 'Basic'], ['anim', 'Animation'], ['adjust', 'Adjust'], ['effects', 'Effects'], ['cutout', 'Cutout'], ['mask', 'Mask'], ['speed', 'Speed'], ['stab', 'Stabilize'], ['audio', 'Audio'], ['key', 'Chroma key']],
+  image: [['basic', 'Basic'], ['anim', 'Animation'], ['adjust', 'Adjust'], ['effects', 'Effects'], ['cutout', 'Cutout'], ['mask', 'Mask'], ['key', 'Chroma key']],
   text: [['text', 'Text'], ['style', 'Style'], ['letters', 'Letter FX'], ['anim', 'Animation'], ['basic', 'Basic'], ['effects', 'Effects']],
   sticker: [['text', 'Sticker'], ['anim', 'Animation'], ['basic', 'Basic'], ['effects', 'Effects']],
   shape: [['shape', 'Shape'], ['basic', 'Basic'], ['anim', 'Animation'], ['effects', 'Effects'], ['mask', 'Mask']],
@@ -52,6 +54,10 @@ export class Inspector {
     this.store.addEventListener('project', () => this.build());
     this.store.addEventListener('change', (e) => (e.detail && e.detail.live ? this.refresh() : this.build()));
     this.player.addEventListener('time', () => this.refresh());
+    window.addEventListener('clipwave:ai', () => {
+      const f = this.store.primary();
+      if (f && this.tab[f.clip.type] === 'cutout') this.build();
+    });
     this.build();
   }
 
@@ -130,6 +136,8 @@ export class Inspector {
       letters: () => this.buildLetters(c),
       shape: () => this.buildShape(c),
       effect: () => this.buildEffectClip(c),
+      cutout: () => buildCutout(this, c),
+      stab: () => buildStabilize(this, c),
     };
     (builders[tab] || builders.basic)();
     this.body.scrollTop = scroll;
@@ -398,6 +406,7 @@ export class Inspector {
         h('p', { class: 'hint' }, 'Speed changes the clip length. Pitch follows the speed, like tape.'),
       ),
     );
+    if (c.type === 'video') this.add(reverseSection(this, c));
   }
 
   buildAudio(c) {
@@ -469,6 +478,7 @@ export class Inspector {
         this.plain('Wrap width', () => t().wrap || 0, (cl, v) => (cl.text.wrap = v), 0, 1, 0.01, (v) => (v ? Math.round(v * 100) + '%' : 'off'), 'Wrap'),
       ),
     );
+    this.add(readAloudSection(this, c));
   }
 
   buildStyle(c) {
@@ -569,6 +579,15 @@ export class Inspector {
     this.add(
       section('Name', nameInput),
       section('Canvas', ratios),
+      section('Auto reframe',
+        h('p', { class: 'hint' }, 'Switch to another shape and keep people in frame: faces are tracked in every clip and the framing follows them.'),
+        h('div', { class: 'ratio-pills' }, ASPECTS.filter(([k]) => k !== p.aspect).map(([k]) => h('button', { type: 'button', class: 'btn small' + (this.reframeTo === k ? ' on' : ''), onclick: () => { this.reframeTo = k; this.build(); } }, k))),
+        this.reframeTo ? jobButton(`Reframe to ${this.reframeTo}`, 'wand', async (progress) => {
+          const r = await autoReframe(this.app, this.reframeTo, progress);
+          this.reframeTo = null;
+          return r.clips ? `Reframed ${r.clips} clip${r.clips > 1 ? 's' : ''}, ${r.found} with faces to follow` : 'No video or photo clips to reframe';
+        }, { primary: true }) : null,
+      ),
       section('Background',
         bgType,
         colorInput({ label: 'Color', get: () => this.store.project.background.color, set: (v, f) => this.editProject((pp) => (pp.background.color = v), f, 'Background') }),

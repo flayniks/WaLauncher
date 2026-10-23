@@ -1,6 +1,6 @@
 # Clipwave
 
-A free video editor that runs in your browser. Multi-track timeline, 122 transitions, 60 effects, 32 filters, 115 clip animations, letter-by-letter text animations, keyframes, masks, chroma key, auto captions and frame-exact MP4 export. Your files never leave your computer.
+A free video editor that runs in your browser. Multi-track timeline, 122 transitions, 60 effects, 32 filters, 115 clip animations, letter-by-letter text animations, keyframes, masks, chroma key, auto captions and frame-exact MP4 export. Background removal, auto reframe, stabilization, reverse and text to speech run on your own computer too. Your files never leave it.
 
 **Run it:** open `dist/clipwave.html` in Chrome or Edge. That's the whole app in one file. No install, no account, no watermark.
 
@@ -16,6 +16,7 @@ A free video editor that runs in your browser. Multi-track timeline, 122 transit
 | **Text** | 36 Google Fonts, outline, shadow, glow, gradient fill, background boxes, wrapping, 29 letter-by-letter animations (typewriter, word pop, karaoke, wave, glitch, scatter, rainbow…) and 20 ready-made styles. |
 | **Compositing** | Drag, scale and rotate on the preview with center snapping, 15 blend modes, 6 mask shapes with feather, crop, flip, chroma key with spill suppression, blurred / gradient / color backgrounds. |
 | **Audio** | Waveforms, volume to 200%, fades you drag on the clip, beat detection on music, voiceover recording and 10 sound effects synthesized on the spot. |
+| **AI tools** | All on your computer, free. Background removal without a green screen and portrait-mode background blur ([MediaPipe](https://ai.google.dev/edge/mediapipe) selfie segmenter, Apache-2.0). Auto reframe to any shape that follows faces with keyframes (MediaPipe face detector). Stabilization that measures shake and roll and smooths the path. Reverse (picture and sound). Text to speech with 18 English voices ([Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) through kokoro-js, Apache-2.0), from the Audio panel or straight from a text clip. |
 | **Captions** | Speech-to-text with Whisper running in the browser ([transformers.js](https://github.com/huggingface/transformers.js), Apache-2.0). 18 languages or auto-detect, four caption styles including karaoke, SRT / VTT import and SRT export. |
 | **Templates** | Six one-click edits (Fast Montage, Cinematic, Daily Vlog, Retro Tape, Hype Reel, Memories): pick your clips, get cuts, transitions, color, effects and a title. |
 | **Export** | MP4 (H.264 + AAC) or WebM (VP9 + Opus) from 480p to 4K at 24 to 60 fps, rendered frame by frame with WebCodecs through [Mediabunny](https://mediabunny.dev) (MPL-2.0), so the file matches the preview exactly. Audio-only WAV and PNG frame grabs too. |
@@ -49,9 +50,10 @@ npm run gen      # re-import gl-transitions and animate.css into src/data (only 
 npm run build    # writes dist/clipwave.html
 npm run dev      # rebuild on save
 npm test         # headless Chromium: compiles every shader, edits a timeline, exports an MP4 and checks it with ffprobe
+npm run test:ai  # downloads the real models: background removal, stabilization, reframe, reverse, text to speech
 ```
 
-The test needs `ffmpeg` and Playwright's Chromium. Open-source Chromium has no H.264, so the test exports VP9 there; Chrome and Edge export H.264.
+The tests need `ffmpeg` and Playwright's Chromium; `test:ai` also needs internet. Open-source Chromium has no H.264, so the test exports VP9 there; Chrome and Edge export H.264.
 
 ## How it works
 
@@ -61,4 +63,4 @@ The test needs `ffmpeg` and Playwright's Chromium. Open-source Chromium has no H
 
 ## Credits
 
-gl-transitions (MIT, each transition by its author), animate.css (MIT, Daniel Eden and contributors), glfx.js (MIT, Evan Wallace), Mediabunny (MPL-2.0, Vanilagy), transformers.js and Whisper (Apache-2.0 / MIT), Google Fonts (SIL Open Font License).
+gl-transitions (MIT, each transition by its author), animate.css (MIT, Daniel Eden and contributors), glfx.js (MIT, Evan Wallace), Mediabunny (MPL-2.0, Vanilagy), transformers.js and Whisper (Apache-2.0 / MIT), MediaPipe Tasks (Apache-2.0, Google), Kokoro-82M and kokoro-js (Apache-2.0), Google Fonts (SIL Open Font License).

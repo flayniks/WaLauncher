@@ -10,6 +10,7 @@ import { clipEnd, sourceTime, transitionInfo, projectDuration } from '../model.j
 import { keyframeValue } from './animation.js';
 import { seekEl } from '../media.js';
 import { loadProjectFonts } from './text.js';
+import { loadMatte } from '../ai.js';
 
 export const RESOLUTIONS = [
   ['480p', 480],
@@ -156,6 +157,10 @@ export async function exportProject(project, media, opts, onProgress, signal) {
     // Plan which source times each clip needs, frame by frame.
     onProgress && onProgress(0, 'Preparing');
     await loadProjectFonts(project);
+    if (project.tracks.some((t) => !t.hidden && t.clips.some((c) => c.cutout && c.cutout.mode && c.cutout.mode !== 'off'))) {
+      onProgress && onProgress(0, 'Loading background removal');
+      await loadMatte();
+    }
     const plan = new Map();
     for (let i = 0; i < frameCount; i++) {
       const t = start + i / fps;

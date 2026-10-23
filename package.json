@@ -10,16 +10,19 @@
     "build": "node tools/build.mjs",
     "dev": "node tools/build.mjs --watch",
     "test": "node tests/run.mjs",
+    "test:ai": "node tests/ai.mjs",
     "lint": "eslint src tools tests"
   },
   "dependencies": {
     "mediabunny": "1.62.1"
   },
   "devDependencies": {
+    "@mediapipe/tasks-vision": "^1.0.1",
     "animate.css": "4.1.1",
     "esbuild": "0.25.10",
     "eslint": "^9.39.1",
     "gl-transitions": "1.76.1",
-    "globals": "^15.15.0"
+    "globals": "^15.15.0",
+    "kokoro-js": "^1.2.1"
   }
 }
