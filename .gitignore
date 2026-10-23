@@ -2,3 +2,4 @@ node_modules/
 tests/.fixtures/
 tests/.out/
 dist/clipwave.body.html
+release/

@@ -17,4 +17,9 @@ export default [
     languageOptions: { ecmaVersion: 2023, sourceType: 'module', globals: { ...globals.node, ...globals.browser } },
     rules: { 'no-undef': 'error' },
   },
+  {
+    files: ['electron/**/*.cjs'],
+    languageOptions: { ecmaVersion: 2023, sourceType: 'commonjs', globals: { ...globals.node } },
+    rules: { 'no-undef': 'error', 'no-unused-vars': ['warn', { args: 'none' }] },
+  },
 ];

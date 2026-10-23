@@ -6,7 +6,7 @@ export const desktop = typeof window !== 'undefined' ? window.clipwaveDesktop ||
 export async function fetchJson(url, headers = {}, timeoutMs = 20000) {
   if (desktop) {
     const r = await desktop.fetch(url, { headers, timeoutMs });
-    if (!r.ok) throw httpError(r.status);
+    if (!r.ok) throw httpError(r.status, r.error);
     return JSON.parse(new TextDecoder().decode(r.data));
   }
   let res;
@@ -22,7 +22,7 @@ export async function fetchJson(url, headers = {}, timeoutMs = 20000) {
 export async function fetchBlob(url, headers = {}) {
   if (desktop) {
     const r = await desktop.fetch(url, { headers });
-    if (!r.ok) throw httpError(r.status);
+    if (!r.ok) throw httpError(r.status, r.error);
     return new Blob([r.data], { type: r.type || '' });
   }
   let res;
@@ -35,7 +35,10 @@ export async function fetchBlob(url, headers = {}) {
   return res.blob();
 }
 
-function httpError(status) {
+function httpError(status, reason) {
+  if (reason === 'timeout') return new Error('The server took too long. Check your connection and try again.');
+  if (reason === 'too-large') return new Error('That file is too big to download.');
+  if (!status) return new Error('Could not reach the server. Check your connection.');
   if (status === 429) return new Error('Too many searches for now. Wait a minute and try again.');
   if (status === 401 || status === 403) return new Error('The server refused the request (' + status + ').');
   if (status === 404) return new Error('That file is no longer available.');

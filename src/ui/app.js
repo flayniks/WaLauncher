@@ -16,6 +16,7 @@ import { db } from '../db.js';
 import { googleFontsHref } from '../engine/text.js';
 import * as ops from '../ops.js';
 import { loadLuts, onLutsChange } from '../luts.js';
+import { desktop } from '../net.js';
 
 export class App {
   constructor(root) {
@@ -212,6 +213,15 @@ export class App {
   }
 
   async saveFile(blob, name) {
+    if (desktop) {
+      try {
+        const where = await desktop.saveFile(name, await blob.arrayBuffer());
+        if (where) toast('Saved to ' + where, 'info', 4000);
+      } catch (e) {
+        toast((e && e.message) || 'Could not save the file', 'error');
+      }
+      return;
+    }
     const dl = await Promise.race([this.downloads, new Promise((r) => setTimeout(() => r(null), 1500))]);
     if (dl) {
       try {

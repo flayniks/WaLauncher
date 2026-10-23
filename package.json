@@ -2,7 +2,7 @@
   "name": "clipwave",
   "version": "1.0.0",
   "private": true,
-  "description": "Clipwave: a fast, free video editor that runs in your browser.",
+  "description": "Clipwave: a fast, free video editor with AI editing, effects, transitions, captions and MP4 export.",
   "license": "UNLICENSED",
   "type": "module",
   "scripts": {
@@ -12,13 +12,15 @@
     "test": "node tests/run.mjs",
     "test:ai": "node tests/ai.mjs",
     "test:editor": "node tests/editor.mjs",
-    "lint": "eslint src tools tests"
-  },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.132.0",
-    "mediabunny": "1.62.1"
+    "lint": "eslint src tools tests electron",
+    "icon": "node tools/make-icon.mjs",
+    "app": "node tools/build.mjs && electron .",
+    "dist:win": "node tools/build.mjs && electron-builder --win --x64",
+    "dist:linux": "node tools/build.mjs && electron-builder --linux --x64",
+    "test:desktop": "xvfb-run -a node tests/desktop.mjs"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.132.0",
     "@mediapipe/tasks-vision": "^1.0.1",
     "animate.css": "4.1.1",
     "electron": "^44.7.0",
@@ -27,6 +29,61 @@
     "eslint": "^9.39.1",
     "gl-transitions": "1.76.1",
     "globals": "^15.15.0",
-    "kokoro-js": "^1.2.1"
+    "kokoro-js": "^1.2.1",
+    "mediabunny": "1.62.1"
+  },
+  "author": "flayniks",
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "com.flayniks.clipwave",
+    "productName": "Clipwave",
+    "copyright": "Copyright © 2026 flayniks",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**",
+      "dist/clipwave.html",
+      "build/icon.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Clipwave",
+      "artifactName": "Clipwave-Setup-${version}.exe"
+    },
+    "portable": {
+      "artifactName": "Clipwave-${version}-Portable.exe"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "AudioVideo",
+      "icon": "build/icon.png",
+      "artifactName": "Clipwave-${version}.AppImage"
+    }
   }
 }
