@@ -257,6 +257,59 @@ try {
   const x1 = await page.evaluate((id) => window.clipwave.store.project.tracks.flatMap((t) => t.clips).find((c) => c.id === id).transform.x, tbox.id);
   check('drag text on the preview', x1 > x0 + 0.05, `x ${x0.toFixed(3)} -> ${x1.toFixed(3)}`);
   await page.screenshot({ path: join(outDir, '5-text-selected.png') });
+  // Corner handle scales, rotate knob rotates (it flips below the box near the top edge).
+  await page.evaluate(() => {
+    const app = window.clipwave;
+    const c = app.store.project.tracks.flatMap((t) => t.clips).find((x) => x.type === 'text');
+    app.store.commit('test', (p) => { const cc = p.tracks.flatMap((t) => t.clips).find((x) => x.id === c.id); cc.transform.y = -0.42; });
+    app.store.select(c.id);
+    app.player.seek(c.start + 1.5);
+  });
+  await page.waitForTimeout(300);
+  const tf = () => page.evaluate(() => ({ ...window.clipwave.store.primary().clip.transform }));
+  const t0 = await tf();
+  const se = await page.$eval('.gizmo .se', (e) => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+  await page.mouse.move(se.x, se.y);
+  await page.mouse.down();
+  await page.mouse.move(se.x + 40, se.y + 20, { steps: 5 });
+  await page.mouse.up();
+  const t1 = await tf();
+  const rot = await page.$eval('.gizmo .rot', (e) => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, below: e.classList.contains('below') }; });
+  await page.mouse.move(rot.x, rot.y);
+  await page.mouse.down();
+  await page.mouse.move(rot.x + 70, rot.y + 30, { steps: 6 });
+  await page.mouse.up();
+  const t2 = await tf();
+  check('preview handles scale and rotate', t1.scale > t0.scale * 1.05 && Math.abs(t2.rotation) > 5, `scale ${t0.scale.toFixed(2)} -> ${t1.scale.toFixed(2)}, rotation ${t2.rotation.toFixed(1)}°, knob ${rot.below ? 'below' : 'above'}`);
+  // Markers and keyframes drag on the timeline.
+  await page.evaluate(() => { window.clipwaveDev.ops.setMarker(window.clipwave.store, 3); window.clipwave.timeline.fit(); });
+  await page.waitForTimeout(200);
+  const mk = await page.evaluate(() => { const tl = window.clipwave.timeline; const cr = tl.canvas.getBoundingClientRect(); return { x: cr.left + tl.timeToX(3) - tl.scroller.scrollLeft, y: cr.top + 14, pps: tl.pps }; });
+  await page.mouse.move(mk.x, mk.y);
+  await page.mouse.down();
+  await page.mouse.move(mk.x + mk.pps, mk.y, { steps: 5 });
+  await page.mouse.up();
+  const markers = await page.evaluate(() => window.clipwave.store.project.markers.map((m) => +m.t.toFixed(2)));
+  check('drag a marker', markers.some((t) => t > 3.6), JSON.stringify(markers));
+  const kfMoved = await page.evaluate(async () => {
+    const app = window.clipwave;
+    const f = app.store.primary();
+    app.store.commit('kf', (p) => { const c = p.tracks.flatMap((t) => t.clips).find((x) => x.id === f.clip.id); c.keyframes = { opacity: [{ t: 0.5, v: 0.2, e: 'linear' }, { t: 1.5, v: 1, e: 'linear' }] }; });
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const tl = app.timeline;
+    const hit = tl.hits.find((hh) => hh.type === 'keyframe' && Math.abs(hh.t - 0.5) < 0.01);
+    const cr = tl.canvas.getBoundingClientRect();
+    return hit ? { x: cr.left + hit.x + hit.w / 2, y: cr.top + hit.y + hit.h / 2, pps: tl.pps } : null;
+  });
+  if (kfMoved) {
+    await page.mouse.move(kfMoved.x, kfMoved.y);
+    await page.mouse.down();
+    await page.mouse.move(kfMoved.x + kfMoved.pps * 0.5, kfMoved.y, { steps: 5 });
+    await page.mouse.up();
+  }
+  const kfs = await page.evaluate(() => window.clipwave.store.primary().clip.keyframes.opacity.map((k) => +k.t.toFixed(2)));
+  check('drag a keyframe', !!kfMoved && kfs[0] > 0.8 && kfs[0] < 1.2, JSON.stringify(kfs));
+
   // Typing into a slider readout.
   await page.click('.insp-tabs button:nth-child(5)');
   const numField = await page.$('.slider-row .num');

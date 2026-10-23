@@ -219,6 +219,13 @@ h4.sub { margin: 16px 0 8px; font-size: 11px; font-weight: 700; color: var(--fg-
 .gizmo .se { right: -6px; bottom: -6px; cursor: nwse-resize; }
 .gizmo .rot { position: absolute; left: 50%; top: -30px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--accent); pointer-events: auto; cursor: grab; }
 .gizmo .rot::after { content: ''; position: absolute; left: 6px; top: 14px; width: 1.5px; height: 16px; background: var(--accent); }
+.gizmo .rot.below { top: auto; bottom: -30px; }
+.gizmo .rot.below::after { top: -16px; }
+.gizmo .handle { width: 13px; height: 13px; }
+.gizmo .nw, .gizmo .sw { left: -7px; }
+.gizmo .ne, .gizmo .se { right: -7px; }
+.gizmo .nw, .gizmo .ne { top: -7px; }
+.gizmo .sw, .gizmo .se { bottom: -7px; }
 .pv-guides { position: absolute; inset: 0; pointer-events: none; }
 .pv-guides i { position: absolute; display: none; background: #ff4fd8; }
 .pv-guides .gv { left: 50%; top: 0; bottom: 0; width: 1px; }

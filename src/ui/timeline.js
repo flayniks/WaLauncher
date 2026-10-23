@@ -1,6 +1,6 @@
 // Multi-track timeline drawn on a canvas. DOM is only used for track headers and the toolbar.
 
-import { h, icon, iconButton, contextMenu, toast } from './dom.js';
+import { h, icon, iconButton, contextMenu, toast, modal } from './dom.js';
 import { clipEnd, findClip, fmtTime, projectDuration, clipLabel, transitionInfo, sourceTime, trackTypeFor } from '../model.js';
 import * as ops from '../ops.js';
 import { effectById } from '../engine/effects.js';
@@ -395,6 +395,7 @@ export class Timeline {
   }
 
   drawRuler(ctx, W, sl, t0, t1) {
+    this.markerHits = [];
     ctx.fillStyle = '#121418';
     ctx.fillRect(0, 0, W, RULER);
     ctx.fillStyle = '#20242b';
@@ -429,6 +430,12 @@ export class Timeline {
       ctx.lineTo(x + 5, RULER - 8);
       ctx.closePath();
       ctx.fill();
+      if (m.label) {
+        ctx.fillStyle = '#e8e9ec';
+        ctx.font = '600 10px system-ui, sans-serif';
+        ctx.fillText(m.label, x + 7, 3);
+      }
+      this.markerHits.push({ type: 'marker', x: x - 7, y: RULER - 16, w: 14, h: 16, marker: m });
     }
     this.hits.push({ type: 'ruler', x: 0, y: 0, w: W, h: RULER });
   }
@@ -603,7 +610,10 @@ export class Timeline {
   // ---------- hit testing & interaction ----------
 
   hitAt(x, y) {
-    if (y < RULER) return this.hits.find((hh) => hh.type === 'ruler') || null;
+    if (y < RULER) {
+      const mk = (this.markerHits || []).find((hh) => x >= hh.x && x <= hh.x + hh.w && y >= hh.y && y <= hh.y + hh.h);
+      return mk || this.hits.find((hh) => hh.type === 'ruler') || null;
+    }
     // Trim handles of a selected clip win over the transition button that sits on the same cut.
     const sel = new Set(this.store.selection);
     const rank = (hit) => {
@@ -701,9 +711,14 @@ export class Timeline {
       this.app.showTab('transitions');
       return;
     }
+    if (hit.type === 'marker') {
+      this.drag = { type: 'marker', id: hit.marker.id, x0: x, t0: hit.marker.t, moved: false };
+      return;
+    }
     if (hit.type === 'keyframe') {
       s.select(hit.clip.id);
       this.player.seek(hit.clip.start + hit.t);
+      this.drag = { type: 'keyframe', id: hit.clip.id, x0: x, t0: hit.t, moved: false };
       return;
     }
     const c = hit.clip;
@@ -738,7 +753,7 @@ export class Timeline {
       const hit = this.hitAt(x, y);
       const prev = this.hover;
       this.hover = hit;
-      this.canvas.style.cursor = !hit ? 'default' : hit.type === 'trimL' || hit.type === 'trimR' ? 'ew-resize' : hit.type === 'clip' ? 'grab' : hit.type === 'ruler' ? 'col-resize' : 'pointer';
+      this.canvas.style.cursor = !hit ? 'default' : hit.type === 'trimL' || hit.type === 'trimR' || hit.type === 'marker' || hit.type === 'keyframe' ? 'ew-resize' : hit.type === 'clip' ? 'grab' : hit.type === 'ruler' ? 'col-resize' : 'pointer';
       if ((prev && prev.type) !== (hit && hit.type) || (prev && prev.clip) !== (hit && hit.clip)) this.request();
       return;
     }
@@ -746,6 +761,37 @@ export class Timeline {
       this.scroller.scrollLeft = d.sl - (x - d.x0);
       this.scroller.scrollTop = d.st - (y - d.y0);
       d.moved = true;
+      return;
+    }
+    if (d.type === 'marker') {
+      if (!d.moved && Math.abs(x - d.x0) < 3) return;
+      d.moved = true;
+      const t = Math.max(0, this.snapTime(d.t0 + (x - d.x0) / this.pps, this.snapPoints(new Set())).t);
+      s.live((p) => {
+        const m = (p.markers || []).find((mm) => mm.id === d.id);
+        if (m) m.t = t;
+      });
+      this.autoScroll(x);
+      return;
+    }
+    if (d.type === 'keyframe') {
+      if (!d.moved && Math.abs(x - d.x0) < 3) return;
+      d.moved = true;
+      // Every keyframed property at this time moves together.
+      s.live((p) => {
+        const f = findClip(p, d.id);
+        if (!f) return;
+        const nt = Math.max(0, Math.min(f.clip.duration, d.t0 + (x - d.x0) / this.pps));
+        for (const k in f.clip.keyframes || {}) {
+          for (const kf of f.clip.keyframes[k]) {
+            if (kf.orig === undefined) kf.orig = kf.t;
+            if (Math.abs(kf.orig - d.t0) < 0.002) kf.t = nt;
+          }
+          f.clip.keyframes[k].sort((a, b) => a.t - b.t);
+        }
+        d.t = nt;
+      });
+      this.player.seek(findClip(s.project, d.id).clip.start + d.t);
       return;
     }
     if (d.type === 'scrub') {
@@ -877,6 +923,20 @@ export class Timeline {
       });
       s.end('Trim');
     } else if (d.type === 'trimR' || d.type === 'fadeIn' || d.type === 'fadeOut') s.end(d.type === 'trimR' ? 'Trim' : 'Fade');
+    else if (d.type === 'marker') {
+      if (d.moved) {
+        s.live((p) => (p.markers || []).sort((a, b) => a.t - b.t));
+        s.end('Move marker');
+      } else this.player.seek(d.t0);
+    } else if (d.type === 'keyframe') {
+      if (d.moved) {
+        s.live((p) => {
+          const f = findClip(p, d.id);
+          if (f) for (const k in f.clip.keyframes || {}) for (const kf of f.clip.keyframes[k]) delete kf.orig;
+        });
+        s.end('Move keyframe');
+      }
+    }
     else if (d.type === 'move' && d.moved) {
       if (d.mainInsert) {
         const target = d.target;
@@ -915,6 +975,20 @@ export class Timeline {
     this.request();
   }
 
+  renameMarker(id) {
+    const m = (this.store.project.markers || []).find((x) => x.id === id);
+    if (!m) return;
+    const input = h('input', { type: 'text', id: 'marker-name', value: m.label || '', 'aria-label': 'Marker name' });
+    const dlg = modal('Marker name', input, [
+      h('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, 'Cancel'),
+      h('button', { type: 'button', class: 'btn primary', onclick: () => {
+        this.store.commit('Rename marker', (p) => { const mm = (p.markers || []).find((x) => x.id === id); if (mm) mm.label = input.value.trim(); });
+        dlg.close();
+      } }, 'Save'),
+    ]);
+    setTimeout(() => input.focus(), 20);
+  }
+
   onDouble(e) {
     const [x, y] = this.local(e);
     const hit = this.hitAt(x, y);
@@ -930,6 +1004,33 @@ export class Timeline {
     const hit = this.hitAt(x, y);
     const s = this.store;
     const t = this.xToTime(x);
+    if (hit && hit.type === 'marker') {
+      const m = hit.marker;
+      contextMenu(e.clientX, e.clientY, [
+        ['Go to marker', () => this.player.seek(m.t)],
+        ['Rename…', () => this.renameMarker(m.id)],
+        ['Delete marker', () => s.commit('Delete marker', (p) => (p.markers = (p.markers || []).filter((x) => x.id !== m.id))), { danger: true }],
+      ]);
+      return;
+    }
+    if (hit && hit.type === 'keyframe') {
+      const kt = hit.t, id = hit.clip.id;
+      contextMenu(e.clientX, e.clientY, [
+        ['Delete keyframe', () => s.commit('Delete keyframe', (p) => {
+          const f = findClip(p, id);
+          if (!f) return;
+          for (const k in f.clip.keyframes || {}) {
+            f.clip.keyframes[k] = f.clip.keyframes[k].filter((kf) => Math.abs(kf.t - kt) > 0.002);
+            if (!f.clip.keyframes[k].length) delete f.clip.keyframes[k];
+          }
+        }), { danger: true }],
+        ...['linear', 'inout', 'in', 'out', 'hold'].map((e2) => [`Ease: ${{ linear: 'linear', inout: 'smooth', in: 'ease in', out: 'ease out', hold: 'hold' }[e2]}`, () => s.commit('Keyframe ease', (p) => {
+          const f = findClip(p, id);
+          if (f) for (const k in f.clip.keyframes || {}) for (const kf of f.clip.keyframes[k]) if (Math.abs(kf.t - kt) < 0.002) kf.e = e2;
+        })]),
+      ]);
+      return;
+    }
     if (hit && hit.clip) {
       if (!s.selection.includes(hit.clip.id)) s.select(hit.clip.id);
       const c = hit.clip;

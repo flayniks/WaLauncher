@@ -14,11 +14,14 @@
     "lint": "eslint src tools tests"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.0",
     "mediabunny": "1.62.1"
   },
   "devDependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",
     "animate.css": "4.1.1",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.17.0",
     "esbuild": "0.25.10",
     "eslint": "^9.39.1",
     "gl-transitions": "1.76.1",

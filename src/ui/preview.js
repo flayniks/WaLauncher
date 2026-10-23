@@ -135,7 +135,9 @@ export class Preview {
     box.style.transform = `translate(${g.cx * k - (g.w * k) / 2}px, ${g.cy * k - (g.h * k) / 2}px) rotate(${g.rot}deg)`;
     if (!f.track.locked) {
       for (const corner of ['nw', 'ne', 'sw', 'se']) box.append(h('i', { class: 'handle ' + corner, 'data-h': corner }));
-      box.append(h('i', { class: 'rot', 'data-h': 'rot', title: 'Rotate' }));
+      // The rotate knob sits above the box, or below it when the box touches the top of the frame.
+      const topCss = g.cy * k - (g.h * k) / 2;
+      box.append(h('i', { class: 'rot' + (topCss < 36 ? ' below' : ''), 'data-h': 'rot', title: 'Rotate (Shift snaps to 15°)' }));
     }
     this.overlay.append(box);
   }
