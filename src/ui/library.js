@@ -13,9 +13,13 @@ import { previewer, PREVIEW_W, PREVIEW_H } from './previewer.js';
 import { WHISPER_MODELS, LANGUAGES, autoCaptions, parseSubtitles, addCaptionClips, toSrt } from '../captions.js';
 import { speak, VOICES } from '../tts.js';
 import { jobButton } from './ai-tools.js';
+import { renderSearch } from './search.js';
+import { renderAssistant } from './assistant.js';
 
 const TABS = [
+  ['ai', 'AI Editor', 'wand'],
   ['media', 'Media', 'folder'],
+  ['search', 'Search', 'search'],
   ['audio', 'Audio', 'music'],
   ['text', 'Text', 'text'],
   ['stickers', 'Stickers', 'sticker'],
@@ -75,6 +79,8 @@ export class Library {
       filters: () => this.renderFilters(),
       templates: () => this.renderTemplates(),
       captions: () => this.renderCaptions(),
+      search: () => renderSearch(this),
+      ai: () => renderAssistant(this),
     }[this.tab];
     fn();
     if (this.lastTab === this.tab) this.panel.scrollTop = scroll;
@@ -193,6 +199,7 @@ export class Library {
       }
       this.panel.append(list);
     }
+    this.panel.append(h('button', { type: 'button', class: 'btn wide', onclick: () => this.show('search') }, icon('search', 15), 'Find free songs and sounds online'));
     this.panel.append(h('h4', { class: 'sub' }, 'Voiceover'), this.recorder());
     this.panel.append(h('h4', { class: 'sub' }, 'Text to speech'), this.ttsBox());
     this.panel.append(h('h4', { class: 'sub' }, 'Sound effects'), h('p', { class: 'hint' }, 'Made on your computer, free to use anywhere.'));

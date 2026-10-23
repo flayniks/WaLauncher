@@ -11,6 +11,7 @@
     "dev": "node tools/build.mjs --watch",
     "test": "node tests/run.mjs",
     "test:ai": "node tests/ai.mjs",
+    "test:editor": "node tests/editor.mjs",
     "lint": "eslint src tools tests"
   },
   "dependencies": {

@@ -109,6 +109,14 @@ export class Store extends EventTarget {
     return s.label;
   }
 
+  // Folds every undo step added since `mark` into one, so a multi-step job undoes in one go.
+  collapseUndo(mark, label) {
+    if (this.undoStack.length - mark <= 1) return;
+    const first = this.undoStack[mark];
+    this.undoStack.splice(mark, this.undoStack.length - mark, { label, snap: first.snap });
+    this.emit('change', { live: false });
+  }
+
   select(ids, additive = false) {
     ids = Array.isArray(ids) ? ids : ids ? [ids] : [];
     if (additive) {

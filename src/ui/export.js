@@ -2,7 +2,9 @@
 
 import { h, icon, modal, select, toast } from './dom.js';
 import { exportProject, exportSize, RESOLUTIONS } from '../engine/exporter.js';
-import { projectDuration, fmtTime } from '../model.js';
+import { projectDuration, fmtTime, makeClip } from '../model.js';
+import { projectCredits } from '../stock.js';
+import { insertTrack } from '../ops.js';
 
 const fmtSize = (b) => (b > 1e9 ? (b / 1e9).toFixed(2) + ' GB' : b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.round(b / 1e3) + ' KB');
 
@@ -37,6 +39,32 @@ export function openExport(app) {
   const status = h('p', { class: 'export-status', role: 'status' });
   const progressView = h('div', { class: 'export-progress', hidden: true }, bar, status);
   const resultView = h('div', { class: 'export-result', hidden: true });
+  // Creative Commons files on the timeline need a credit line wherever the video is posted.
+  const credits = projectCredits(p, app.media);
+  const creditBox = credits.length
+    ? h('div', { class: 'credits-box' },
+      h('h4', null, `Credits for ${credits.length} file${credits.length > 1 ? 's' : ''}`),
+      h('p', { class: 'hint' }, 'Paste these into your video description, or add them as an end card.'),
+      h('textarea', { rows: Math.min(5, credits.length + 1), readOnly: true, id: 'export-credits', 'aria-label': 'Credits', value: credits.join('\n') }),
+      h('div', { class: 'btn-row' },
+        h('button', { type: 'button', class: 'btn small', onclick: () => {
+          const text = credits.join('\n');
+          navigator.clipboard.writeText(text).then(() => toast('Credits copied'), () => { const ta = document.getElementById('export-credits'); ta.select(); toast('Press Ctrl+C to copy'); });
+        } }, 'Copy credits'),
+        h('button', { type: 'button', class: 'btn small', onclick: () => {
+          const end = projectDuration(app.store.project);
+          app.store.commit('Credits card', (pp) => {
+            const t = insertTrack(pp, 'text');
+            const c = makeClip('text', { start: end, duration: Math.max(3, Math.min(8, credits.length * 1.2)) });
+            Object.assign(c.text, { content: 'Credits\n' + credits.map((l) => l.replace(/ https?:\/\/\S+/g, '').replace(/\. To view a copy.*$/, '')).join('\n'), size: 30, weight: 600, font: 'Poppins', wrap: 0.9, lineHeight: 1.35 });
+            t.clips.push(c);
+          });
+          toast('Added a credits card at the end');
+          updateInfo();
+        } }, 'Add as end card'),
+      ))
+    : null;
+  if (creditBox) settings.append(creditBox);
   const body = h('div', null, settings, progressView, resultView);
   let ctrl = null;
   const startBtn = h('button', { type: 'button', class: 'btn primary', onclick: () => run() }, icon('export', 16), 'Export');
