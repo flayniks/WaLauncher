@@ -128,6 +128,33 @@ try {
   await page.evaluate(() => window.clipwave.player.pause());
   check('playback advances', playing.t > 4.8 + 0.8, JSON.stringify(playing));
 
+  // The decoder fallback used when a <video> element can't open a file.
+  const dec = await page.evaluate(async () => {
+    const app = window.clipwave;
+    const p = app.player;
+    for (const m of app.media.items.values()) m.elementFailed = true;
+    for (const id of [...p.els.keys()]) p.dropElement(id);
+    p.seek(1);
+    await new Promise((r) => setTimeout(r, 1500));
+    const centerPixel = () => {
+      app.renderer.render(app.store.project, p.time, p.frames);
+      const gl = app.renderer.gl;
+      const px = new Uint8Array(4);
+      gl.readPixels(gl.drawingBufferWidth >> 1, gl.drawingBufferHeight >> 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      return [...px];
+    };
+    const still = centerPixel();
+    const modes = [...p.els.values()].map((e) => e.mode || 'element');
+    p.play();
+    await new Promise((r) => setTimeout(r, 1200));
+    const shown = [...p.els.values()].filter((e) => e.dec).map((e) => e.dec.shown);
+    p.pause();
+    for (const m of app.media.items.values()) m.elementFailed = false;
+    for (const id of [...p.els.keys()]) p.dropElement(id);
+    return { still, modes, shown };
+  });
+  check('decoder fallback shows and plays frames', dec.modes.includes('decoder') && dec.still.slice(0, 3).some((v) => v > 20) && dec.shown.some((s) => s > 1.3), JSON.stringify(dec));
+
   // Undo / redo
   const undo = await page.evaluate(() => {
     const s = window.clipwave.store;

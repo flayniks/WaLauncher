@@ -319,11 +319,13 @@ export async function freezeFrame(store, media, player) {
   const target = f && f.clip.type === 'video' ? f : findClip(p, (mainTrack(p).clips.find((c) => c.type === 'video' && t >= c.start && t < clipEnd(c)) || {}).id);
   if (!target) return false;
   const e = player.els.get(target.clip.id);
-  if (!e || !e.el.videoWidth) return false;
+  const src = e && (e.mode === 'decoder' ? e.dec.frame : e.el);
+  const w = src && (src.videoWidth || src.width), hgt = src && (src.videoHeight || src.height);
+  if (!w || !hgt) return false;
   const c = document.createElement('canvas');
-  c.width = e.el.videoWidth;
-  c.height = e.el.videoHeight;
-  c.getContext('2d').drawImage(e.el, 0, 0);
+  c.width = w;
+  c.height = hgt;
+  c.getContext('2d').drawImage(src, 0, 0);
   const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
   const m = await media.addBlob(blob, 'Freeze frame.png');
   if (!m) return false;

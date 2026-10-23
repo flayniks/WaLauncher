@@ -1,8 +1,118 @@
 // Live preview: keeps one media element per clip in step with the playhead, routes audio through Web Audio
 // (so volume can go past 100% and fade smoothly) and redraws the frame.
 
+import { Input, BlobSource, ALL_FORMATS, CanvasSink } from 'mediabunny';
 import { clipEnd, sourceTime, transitionInfo, projectDuration } from '../model.js';
 import { keyframeValue } from './animation.js';
+
+const nextFrame = () => new Promise((r) => requestAnimationFrame(r));
+
+// Preview path for media the <video> element cannot open (an unusual codec, or a page that blocks blob: media):
+// frames come from WebCodecs and sound from a decoded buffer played through Web Audio.
+class DecodedSource {
+  constructor(player, media) {
+    this.player = player;
+    this.media = media;
+    this.frame = null;
+    this.shown = -1;
+    this.token = 0;
+    this.running = false;
+    this.busy = false;
+    this.pending = null;
+    this.audio = null;
+    this.sink = (async () => {
+      const input = new Input({ source: new BlobSource(media.blob), formats: ALL_FORMATS });
+      const vt = await input.getPrimaryVideoTrack();
+      if (!vt || !(await vt.canDecode())) return null;
+      const w = await vt.getDisplayWidth();
+      const k = Math.min(1, 1280 / Math.max(1, w));
+      return new CanvasSink(vt, { width: Math.max(2, Math.round(w * k)), poolSize: 0 });
+    })().catch(() => null);
+  }
+
+  // Shows the frame at a source time while paused.
+  async show(st) {
+    if (Math.abs(st - this.shown) < 0.001) return;
+    if (this.busy) {
+      this.pending = st;
+      return;
+    }
+    this.busy = true;
+    try {
+      const sink = await this.sink;
+      const wc = sink && (await sink.getCanvas(st));
+      if (wc) {
+        this.frame = wc.canvas;
+        this.shown = st;
+        this.player.dirty = true;
+      }
+    } catch {
+      /* keep the last frame */
+    }
+    this.busy = false;
+    if (this.pending !== null) {
+      const next = this.pending;
+      this.pending = null;
+      this.show(next);
+    }
+  }
+
+  // Runs frames forward from st, released as the playhead reaches them.
+  async play(st, now) {
+    const token = ++this.token;
+    this.running = true;
+    const sink = await this.sink;
+    if (!sink || token !== this.token) return;
+    try {
+      for await (const wc of sink.canvases(st)) {
+        if (token !== this.token) break;
+        while (token === this.token && now() < wc.timestamp) await nextFrame();
+        if (token !== this.token) break;
+        this.frame = wc.canvas;
+        this.shown = wc.timestamp;
+        this.player.dirty = true;
+      }
+    } catch {
+      /* stop quietly */
+    }
+    if (token === this.token) this.running = false;
+  }
+
+  stop() {
+    this.token++;
+    this.running = false;
+  }
+
+  startAudio(lib, ctx, dest, st, speed) {
+    if (this.audio || !this.media.hasAudio) return;
+    const token = (this.audioToken = (this.audioToken || 0) + 1);
+    const asked = ctx.currentTime;
+    this.audio = { pending: true };
+    lib.audioBuffer(this.media.id).then((buf) => {
+      if (!buf || token !== this.audioToken || !this.audio) return;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = speed;
+      src.connect(dest);
+      const offset = st + (ctx.currentTime - asked) * speed;
+      if (offset < buf.duration) src.start(0, offset);
+      this.audio = { src };
+    });
+  }
+
+  stopAudio() {
+    this.audioToken = (this.audioToken || 0) + 1;
+    if (this.audio && this.audio.src) {
+      try {
+        this.audio.src.stop();
+        this.audio.src.disconnect();
+      } catch {
+        /* already stopped */
+      }
+    }
+    this.audio = null;
+  }
+}
 
 export class Player extends EventTarget {
   constructor(renderer, getProject, media) {
@@ -20,6 +130,7 @@ export class Player extends EventTarget {
     this.loop = false;
     this.range = null; // {start, end} to play only a section
     this.frames = { get: (clip, st) => this.frameFor(clip, st) };
+    this.seekGen = 0;
     this._raf = 0;
     this._tick = this.tick.bind(this);
     this._raf = requestAnimationFrame(this._tick);
@@ -46,6 +157,13 @@ export class Player extends EventTarget {
   }
 
   wire(e) {
+    if (e.mode === 'decoder') {
+      if (this.ctx && !e.gain) {
+        e.gain = this.ctx.createGain();
+        e.gain.connect(this.master);
+      }
+      return;
+    }
     if (!this.ctx || e.node) return;
     try {
       e.node = this.ctx.createMediaElementSource(e.el);
@@ -78,7 +196,12 @@ export class Player extends EventTarget {
   pause() {
     if (!this.playing) return;
     this.playing = false;
-    for (const e of this.els.values()) if (!e.el.paused) e.el.pause();
+    for (const e of this.els.values()) {
+      if (e.mode === 'decoder') {
+        e.dec.stop();
+        e.dec.stopAudio();
+      } else if (!e.el.paused) e.el.pause();
+    }
     this.dirty = true;
     this.dispatchEvent(new Event('state'));
   }
@@ -88,6 +211,7 @@ export class Player extends EventTarget {
   }
 
   seek(t) {
+    this.seekGen++;
     const p = this.getProject();
     this.time = Math.max(0, Math.min(t, Math.max(projectDuration(p), 0)));
     if (this.playing) {
@@ -108,6 +232,15 @@ export class Player extends EventTarget {
     if (!m) return null;
     if (e && e.mediaId === clip.mediaId) return e;
     if (e) this.dropElement(clip.id);
+    if (m.elementFailed) {
+      e = { mode: 'decoder', dec: new DecodedSource(this, m), mediaId: clip.mediaId, gain: null, node: null };
+      if (this.ctx) {
+        e.gain = this.ctx.createGain();
+        e.gain.connect(this.master);
+      }
+      this.els.set(clip.id, e);
+      return e;
+    }
     const el = document.createElement(clip.type === 'audio' ? 'audio' : 'video');
     el.preload = 'auto';
     el.playsInline = true;
@@ -117,6 +250,12 @@ export class Player extends EventTarget {
     el.src = m.url;
     el.addEventListener('seeked', () => (this.dirty = true));
     el.addEventListener('loadeddata', () => (this.dirty = true));
+    el.addEventListener('error', () => {
+      // Switch this media to the decoder path; the next sync builds it.
+      m.elementFailed = true;
+      if (this.els.get(clip.id) === e) this.dropElement(clip.id);
+      this.dirty = true;
+    });
     e = { el, mediaId: clip.mediaId, gain: null, node: null };
     this.els.set(clip.id, e);
     this.wire(e);
@@ -126,6 +265,17 @@ export class Player extends EventTarget {
   dropElement(id) {
     const e = this.els.get(id);
     if (!e) return;
+    if (e.mode === 'decoder') {
+      e.dec.stop();
+      e.dec.stopAudio();
+      try {
+        e.gain && e.gain.disconnect();
+      } catch {
+        /* ignore */
+      }
+      this.els.delete(id);
+      return;
+    }
     e.el.pause();
     try {
       e.node && e.node.disconnect();
@@ -148,6 +298,7 @@ export class Player extends EventTarget {
       return { image: bmp, w: bmp.width, h: bmp.height };
     }
     const e = this.els.get(clip.id);
+    if (e && e.mode === 'decoder') return e.dec.frame ? { image: e.dec.frame, w: e.dec.frame.width, h: e.dec.frame.height } : null;
     if (!e || e.el.readyState < 2 || !e.el.videoWidth) return null;
     return { image: e.el, w: e.el.videoWidth, h: e.el.videoHeight, dynamic: true };
   }
@@ -184,19 +335,36 @@ export class Player extends EventTarget {
         const e = this.element(clip);
         if (!e) return;
         const el = e.el;
-        const dur = m.duration || el.duration || 0;
+        const dur = m.duration || (el && el.duration) || 0;
         const active = t >= a && t < b;
         const target = Math.max(0, Math.min(active ? sourceTime(clip, t) : clip.in || 0, Math.max(0, dur - 0.02)));
-        el.playbackRate = Math.max(0.0625, Math.min(16, clip.speed || 1));
-        if (active && this.playing) {
-          if (el.paused) {
-            if (Math.abs(el.currentTime - target) > 0.04) el.currentTime = target;
-            const pr = el.play();
-            if (pr && pr.catch) pr.catch(() => {});
-          } else if (Math.abs(el.currentTime - target) > 0.3) el.currentTime = target;
+        if (e.mode === 'decoder') {
+          const dec = e.dec;
+          if (active && this.playing) {
+            if (!dec.running || dec.gen !== this.seekGen) {
+              dec.gen = this.seekGen;
+              dec.stopAudio();
+              if (clip.type === 'video') dec.play(target, () => sourceTime(clip, this.time));
+              else dec.running = true;
+            }
+            if (!dec.audio && this.ctx && e.gain) dec.startAudio(this.media, this.ctx, e.gain, target, clip.speed || 1);
+          } else {
+            if (dec.running) dec.stop();
+            if (dec.audio) dec.stopAudio();
+            if (clip.type === 'video') dec.show(target);
+          }
         } else {
-          if (!el.paused) el.pause();
-          if (Math.abs(el.currentTime - target) > 0.5 / fps && !el.seeking) el.currentTime = target;
+          el.playbackRate = Math.max(0.0625, Math.min(16, clip.speed || 1));
+          if (active && this.playing) {
+            if (el.paused) {
+              if (Math.abs(el.currentTime - target) > 0.04) el.currentTime = target;
+              const pr = el.play();
+              if (pr && pr.catch) pr.catch(() => {});
+            } else if (Math.abs(el.currentTime - target) > 0.3) el.currentTime = target;
+          } else {
+            if (!el.paused) el.pause();
+            if (Math.abs(el.currentTime - target) > 0.5 / fps && !el.seeking) el.currentTime = target;
+          }
         }
         // Volume: clip volume (with keyframes) x fades x track mute.
         let vol = 0;
@@ -208,7 +376,7 @@ export class Player extends EventTarget {
           if (clip.fadeOut > 0 && left < clip.fadeOut) vol *= Math.max(0, left / clip.fadeOut);
         }
         if (e.gain) e.gain.gain.setTargetAtTime(vol, this.ctx.currentTime, 0.015);
-        else el.volume = Math.max(0, Math.min(1, vol));
+        else if (el) el.volume = Math.max(0, Math.min(1, vol));
       });
     }
     for (const id of [...this.els.keys()]) if (!seen.has(id)) this.dropElement(id);
@@ -223,6 +391,7 @@ export class Player extends EventTarget {
       this.time = this.timeStart + ((performance.now() - this.clockStart) / 1000);
       if (this.time >= end) {
         if (this.loop && end > 0) {
+          this.seekGen++;
           this.time = this.range ? this.range.start : 0;
           this.clockStart = performance.now();
           this.timeStart = this.time;
@@ -236,7 +405,7 @@ export class Player extends EventTarget {
     }
     this.sync();
     // While paused, keep drawing for a moment after changes so seeks and decodes land.
-    const seeking = [...this.els.values()].some((e) => e.el.seeking);
+    const seeking = [...this.els.values()].some((e) => e.el && e.el.seeking);
     if (this.dirty || seeking) {
       this.dirty = false;
       try {
